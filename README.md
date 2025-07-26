@@ -40,11 +40,11 @@ Installing on the client side will have no effect.
 ```
 /mysb                    # スコアボード選択GUIを開く（プレイヤー用） / Open scoreboard selection GUI (for players)
 /mysb reload             # 設定再読み込み（OPレベル4限定） / Reload configuration (OP level 4 only)
-/mysb total list         # トータル統計の一覧表示（OP限定） / List total statistics (OP only)
-/mysb total update       # トータル統計を手動更新（OP限定） / Manually update total stats (OP only)
-/mysb total add <id> <displayName> <statType>  # カスタムトータル統計を追加（OP限定） / Add custom total stat (OP only)
-/mysb admin stats enable <stat>   # 統計を有効化（OPレベル3以上） / Enable a statistic (OP level 3+)
-/mysb admin stats disable <stat>  # 統計を無効化（OPレベル3以上） / Disable a statistic (OP level 3+)
+/mysb total list         # トータル統計の一覧表示 / List total statistics (OP only)
+/mysb total update       # トータル統計を手動更新 / Manually update total stats (OP only)
+/mysb total add <id> <displayName> <statType>  # カスタムトータル統計を追加 / Add custom total stat (OP only)
+/mysb admin stats enable <stat>   # 統計を有効化 / Enable a statistic (OP level 3+)
+/mysb admin stats disable <stat>  # 統計を無効化 / Disable a statistic (OP level 3+)
 /mysb admin stats list            # 統計の有効/無効状態を表示 / Show enabled/disabled stats
 /mysb admin stats gui             # 統計管理GUIを開く / Open statistics management GUI
 ```
