@@ -1,1 +1,29 @@
-
+{
+	"schemaVersion": 1,
+	"id": "mysb",
+	"version": "beta-1.1",
+	"name": "MySB - My Scoreboard",
+	"description": "サーバー専用スコアボード管理Mod - バニラクライアント対応、クライアント側インストール不要",
+	"authors": [
+		"YourName"
+	],
+	"license": "MIT",
+	"icon": "assets/serverscoreboard/icon.png",
+	"environment": "server",
+	"entrypoints": {
+		"server": [
+			"com.scserver.serverscoreboard.ServerOnlyScoreboardMod"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.14.0",
+		"fabric-api": "*",
+		"minecraft": "1.19.4"
+	},
+	"custom": {
+		"modmenu": {
+			"badges": ["server"]
+		}
+	},
+	"suggests": {}
+}
