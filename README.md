@@ -27,7 +27,7 @@ Players can modify their own scoreboard display.
 Installing on the client side will have no effect.
 
 ### サーバー側 (Server Side)
-1. `mysb-1.0.0.jar` をサーバーの `mods` フォルダに配置
+1. `serverscoreboard-beta-1.1.jar` をサーバーの `mods` フォルダに配置
 2. サーバーを起動
 
 ### クライアント側 (Client Side)
