@@ -263,7 +263,7 @@ public class ServerScoreboardManager {
         }
     }
     
-    private static PlayerScoreboardData getOrCreatePlayerData(UUID playerId) {
+    public static PlayerScoreboardData getOrCreatePlayerData(UUID playerId) {
         return playerData.computeIfAbsent(playerId, k -> new PlayerScoreboardData());
     }
     
@@ -681,6 +681,7 @@ public class ServerScoreboardManager {
         public int getScoreCount() {
             return scores.size();
         }
+        
 
         public boolean isEnabled() {
             return enabled;
@@ -733,6 +734,7 @@ public class ServerScoreboardManager {
             }
         }
     }
+    
     
     // 統計スコアボードを表示しているすべてのプレイヤーに更新を送信
     public static void updateTotalStatsForWatchers() {

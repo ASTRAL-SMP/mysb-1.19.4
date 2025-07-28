@@ -53,6 +53,8 @@ public class ServerScoreboardCommands {
                                         .executes(ServerScoreboardCommands::removeTotalStat))))
                 .then(CommandManager.literal("admin")
                         .requires(source -> source.hasPermissionLevel(0)) // 権限レベル0（全員使用可能）
+                        .then(CommandManager.literal("gui")
+                                .executes(ServerScoreboardCommands::openAdminGUI))
                         .then(CommandManager.literal("exclude")
                                 .then(CommandManager.argument("player", StringArgumentType.word())
                                         .suggests(ServerScoreboardCommands::suggestOnlinePlayers)
@@ -73,10 +75,32 @@ public class ServerScoreboardCommands {
                                                 .suggests(ServerScoreboardCommands::suggestEnabledStats)
                                                 .executes(ServerScoreboardCommands::disableStat)))
                                 .then(CommandManager.literal("list")
-                                        .executes(ServerScoreboardCommands::listStatStatus))
-                                .then(CommandManager.literal("gui")
-                                        .executes(ServerScoreboardCommands::openStatManagementGUI))))
+                                        .executes(ServerScoreboardCommands::listStatStatus))))
         );
+    }
+
+    private static int openAdminGUI(CommandContext<ServerCommandSource> context) {
+        try {
+            ServerCommandSource source = context.getSource();
+            if (source.getEntity() instanceof ServerPlayerEntity player) {
+                // Rate limit check
+                if (!RateLimiter.canPerformAction(player.getUuid(), "gui", ServerScoreboardConfig.GUI_OPEN_COOLDOWN_MS)) {
+                    source.sendError(Text.literal("コマンドを実行するには少し待ってください"));
+                    return 0;
+                }
+                
+                // Open Admin GUI (統計管理から開始)
+                ServerScoreboardAdminGUI.openFor(player, ServerScoreboardAdminGUI.AdminPage.STATS);
+                return 1;
+            } else {
+                source.sendError(Text.literal("このコマンドはプレイヤーのみ実行できます"));
+                return 0;
+            }
+        } catch (Exception e) {
+            ServerScoreboardLogger.error("Error executing admin GUI command", e);
+            context.getSource().sendError(Text.literal("コマンド実行中にエラーが発生しました: " + e.getMessage()));
+            return 0;
+        }
     }
 
     private static int openGUIForSender(CommandContext<ServerCommandSource> context) {
@@ -89,8 +113,8 @@ public class ServerScoreboardCommands {
                     return 0;
                 }
                 
-                // Open GUI for sender
-                ServerScoreboardGUIv2.openFor(player, ServerScoreboardGUIv2.GUIPage.SCOREBOARD);
+                // Open GUI for sender (統計ページから開始)
+                ServerScoreboardGUIv2.openFor(player, ServerScoreboardGUIv2.GUIPage.STATISTICS);
                 return 1;
             } else {
                 source.sendError(Text.literal("このコマンドはプレイヤーのみ実行できます"));
@@ -294,30 +318,6 @@ public class ServerScoreboardCommands {
         } catch (Exception e) {
             ServerScoreboardLogger.error("Error listing stat status", e);
             context.getSource().sendError(Text.literal("統計の一覧表示中にエラーが発生しました: " + e.getMessage()));
-            return 0;
-        }
-    }
-    
-    private static int openStatManagementGUI(CommandContext<ServerCommandSource> context) {
-        try {
-            ServerCommandSource source = context.getSource();
-            if (source.getEntity() instanceof ServerPlayerEntity player) {
-                // Rate limit check
-                if (!RateLimiter.canPerformAction(player.getUuid(), "gui", ServerScoreboardConfig.GUI_OPEN_COOLDOWN_MS)) {
-                    source.sendError(Text.literal("コマンドを実行するには少し待ってください"));
-                    return 0;
-                }
-                
-                // Open statistics management GUI for admin
-                ServerScoreboardGUIv2.openFor(player, ServerScoreboardGUIv2.GUIPage.STATISTICS);
-                return 1;
-            } else {
-                source.sendError(Text.literal("このコマンドはプレイヤーのみ実行できます"));
-                return 0;
-            }
-        } catch (Exception e) {
-            ServerScoreboardLogger.error("Error executing stat GUI command", e);
-            context.getSource().sendError(Text.literal("コマンド実行中にエラーが発生しました: " + e.getMessage()));
             return 0;
         }
     }

@@ -22,79 +22,26 @@ public class ServerScoreboardGUIv2 {
     private static final int GUI_SIZE = 54;
     
     public enum GUIPage {
-        SCOREBOARD,
-        STATISTICS
+        STATISTICS,
+        SCOREBOARD
     }
     
     public static void openFor(ServerPlayerEntity player, GUIPage page) {
         SimpleInventory inventory = new SimpleInventory(GUI_SIZE);
         
         switch (page) {
-            case SCOREBOARD:
-                setupScoreboardGUI(inventory, player, 0);
-                break;
             case STATISTICS:
                 setupStatisticsGUI(inventory, player, 0);
+                break;
+            case SCOREBOARD:
+                setupScoreboardGUI(inventory, player, 0);
                 break;
         }
         
         player.openHandledScreen(new net.minecraft.screen.SimpleNamedScreenHandlerFactory(
                 (syncId, playerInventory, playerEntity) -> new ServerScoreboardScreenHandler(syncId, playerInventory, inventory, player, page),
-                Text.literal(page == GUIPage.SCOREBOARD ? "スコアボード選択" : "統計選択")
+                Text.literal(page == GUIPage.STATISTICS ? "統計選択" : "スコアボード選択")
         ));
-    }
-    
-    private static void setupScoreboardGUI(SimpleInventory inventory, ServerPlayerEntity player, int page) {
-        inventory.clear();
-        
-        // Slot 0: Statistics button (book icon)
-        ItemStack statsButton = new ItemStack(Items.BOOK);
-        statsButton.setCustomName(Text.literal("統計を表示").formatted(Formatting.AQUA));
-        inventory.setStack(0, statsButton);
-        
-        // Slot 4: Reset button
-        ItemStack resetButton = new ItemStack(Items.BARRIER);
-        resetButton.setCustomName(Text.literal("デフォルトにリセット").formatted(Formatting.YELLOW));
-        inventory.setStack(4, resetButton);
-        
-        // Slot 8: Close button
-        ItemStack closeButton = new ItemStack(Items.REDSTONE);
-        closeButton.setCustomName(Text.literal("閉じる").formatted(Formatting.RED));
-        inventory.setStack(8, closeButton);
-        
-        // Get objectives list (excluding total stats)
-        List<String> objectives = getObjectivesList(player, false);
-        
-        // Navigation
-        if (page > 0) {
-            ItemStack prevButton = new ItemStack(Items.ARROW);
-            prevButton.setCustomName(Text.literal("前のページ").formatted(Formatting.AQUA));
-            inventory.setStack(18, prevButton);
-        }
-        
-        if ((page + 1) * 27 < objectives.size()) {
-            ItemStack nextButton = new ItemStack(Items.ARROW);
-            nextButton.setCustomName(Text.literal("次のページ").formatted(Formatting.AQUA));
-            inventory.setStack(26, nextButton);
-        }
-        
-        // Display objectives
-        int startIndex = page * 27;
-        int endIndex = Math.min(startIndex + 27, objectives.size());
-        
-        for (int i = startIndex; i < endIndex; i++) {
-            String objective = objectives.get(i);
-            ItemStack objectiveItem = new ItemStack(Items.PAPER);
-            objectiveItem.setCustomName(Text.literal(objective).formatted(Formatting.WHITE));
-            inventory.setStack(27 + (i - startIndex), objectiveItem);
-        }
-        
-        // Fill empty slots
-        for (int i = 27 + (endIndex - startIndex); i < 54; i++) {
-            ItemStack glassPane = new ItemStack(Items.GRAY_STAINED_GLASS_PANE);
-            glassPane.setCustomName(Text.literal(" "));
-            inventory.setStack(i, glassPane);
-        }
     }
     
     private static void setupStatisticsGUI(SimpleInventory inventory, ServerPlayerEntity player, int page) {
@@ -148,6 +95,59 @@ public class ServerScoreboardGUIv2 {
             String displayName = TotalStatsManager.getTotalDisplayName(statObjective);
             statItem.setCustomName(Text.literal(displayName).formatted(Formatting.GOLD, Formatting.BOLD));
             inventory.setStack(27 + (i - startIndex), statItem);
+        }
+        
+        // Fill empty slots
+        for (int i = 27 + (endIndex - startIndex); i < 54; i++) {
+            ItemStack glassPane = new ItemStack(Items.GRAY_STAINED_GLASS_PANE);
+            glassPane.setCustomName(Text.literal(" "));
+            inventory.setStack(i, glassPane);
+        }
+    }
+    
+    private static void setupScoreboardGUI(SimpleInventory inventory, ServerPlayerEntity player, int page) {
+        inventory.clear();
+        
+        // Slot 0: Statistics button (book icon)
+        ItemStack statsButton = new ItemStack(Items.BOOK);
+        statsButton.setCustomName(Text.literal("統計を表示").formatted(Formatting.AQUA));
+        inventory.setStack(0, statsButton);
+        
+        // Slot 4: Reset button
+        ItemStack resetButton = new ItemStack(Items.BARRIER);
+        resetButton.setCustomName(Text.literal("デフォルトにリセット").formatted(Formatting.YELLOW));
+        inventory.setStack(4, resetButton);
+        
+        // Slot 8: Close button
+        ItemStack closeButton = new ItemStack(Items.REDSTONE);
+        closeButton.setCustomName(Text.literal("閉じる").formatted(Formatting.RED));
+        inventory.setStack(8, closeButton);
+        
+        // Get objectives list (excluding total stats)
+        List<String> objectives = getObjectivesList(player, false);
+        
+        // Navigation
+        if (page > 0) {
+            ItemStack prevButton = new ItemStack(Items.ARROW);
+            prevButton.setCustomName(Text.literal("前のページ").formatted(Formatting.AQUA));
+            inventory.setStack(18, prevButton);
+        }
+        
+        if ((page + 1) * 27 < objectives.size()) {
+            ItemStack nextButton = new ItemStack(Items.ARROW);
+            nextButton.setCustomName(Text.literal("次のページ").formatted(Formatting.AQUA));
+            inventory.setStack(26, nextButton);
+        }
+        
+        // Display objectives
+        int startIndex = page * 27;
+        int endIndex = Math.min(startIndex + 27, objectives.size());
+        
+        for (int i = startIndex; i < endIndex; i++) {
+            String objective = objectives.get(i);
+            ItemStack objectiveItem = new ItemStack(Items.PAPER);
+            objectiveItem.setCustomName(Text.literal(objective).formatted(Formatting.WHITE));
+            inventory.setStack(27 + (i - startIndex), objectiveItem);
         }
         
         // Fill empty slots
@@ -214,13 +214,13 @@ public class ServerScoreboardGUIv2 {
         private void handleSlotClick(int slotIndex) {
             switch (slotIndex) {
                 case 0:
-                    // Switch between scoreboard and statistics
-                    if (currentPage == GUIPage.SCOREBOARD) {
-                        player.closeHandledScreen();
-                        ServerScoreboardGUIv2.openFor(player, GUIPage.STATISTICS);
-                    } else {
+                    // Switch between statistics and scoreboard
+                    if (currentPage == GUIPage.STATISTICS) {
                         player.closeHandledScreen();
                         ServerScoreboardGUIv2.openFor(player, GUIPage.SCOREBOARD);
+                    } else {
+                        player.closeHandledScreen();
+                        ServerScoreboardGUIv2.openFor(player, GUIPage.STATISTICS);
                     }
                     break;
                     
@@ -244,9 +244,9 @@ public class ServerScoreboardGUIv2 {
                     
                 case 26:
                     // Next page
-                    List<String> items = currentPage == GUIPage.SCOREBOARD ? 
-                        getObjectivesList(player, false) : 
-                        TotalStatsManager.getAllTotalObjectives();
+                    List<String> items = currentPage == GUIPage.STATISTICS ? 
+                        getAllTotalStats() :
+                        getObjectivesList(player, false);
                     if ((pageNumber + 1) * 27 < items.size()) {
                         pageNumber++;
                         refreshGUI();
@@ -262,27 +262,32 @@ public class ServerScoreboardGUIv2 {
             }
         }
         
+        private List<String> getAllTotalStats() {
+            List<String> totalStats = new ArrayList<>();
+            for (String objective : TotalStatsManager.getAllTotalObjectives()) {
+                String id = objective.substring(6); // Remove "total_" prefix
+                if (TotalStatsManager.getEnabledStats().contains(id)) {
+                    totalStats.add(objective);
+                }
+            }
+            totalStats.sort(String::compareTo);
+            return totalStats;
+        }
+        
         private void handleItemSelection(int slotIndex) {
             int itemIndex = pageNumber * 27 + (slotIndex - 27);
             
-            if (currentPage == GUIPage.SCOREBOARD) {
+            if (currentPage == GUIPage.STATISTICS) {
+                List<String> totalStats = getAllTotalStats();
+                if (itemIndex < totalStats.size()) {
+                    String selectedStat = totalStats.get(itemIndex);
+                    selectObjective(selectedStat);
+                }
+            } else {
                 List<String> objectives = getObjectivesList(player, false);
                 if (itemIndex < objectives.size()) {
                     String selectedObjective = objectives.get(itemIndex);
                     selectObjective(selectedObjective);
-                }
-            } else {
-                List<String> totalStats = new ArrayList<>();
-                for (String objective : TotalStatsManager.getAllTotalObjectives()) {
-                    String id = objective.substring(6); // Remove "total_" prefix
-                    if (TotalStatsManager.getEnabledStats().contains(id)) {
-                        totalStats.add(objective);
-                    }
-                }
-                totalStats.sort(String::compareTo);
-                if (itemIndex < totalStats.size()) {
-                    String selectedStat = totalStats.get(itemIndex);
-                    selectObjective(selectedStat);
                 }
             }
         }
@@ -310,10 +315,10 @@ public class ServerScoreboardGUIv2 {
         }
         
         private void refreshGUI() {
-            if (currentPage == GUIPage.SCOREBOARD) {
-                setupScoreboardGUI(inventory, player, pageNumber);
-            } else {
+            if (currentPage == GUIPage.STATISTICS) {
                 setupStatisticsGUI(inventory, player, pageNumber);
+            } else {
+                setupScoreboardGUI(inventory, player, pageNumber);
             }
         }
     }
