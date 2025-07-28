@@ -1,7 +1,7 @@
 {
 	"schemaVersion": 1,
 	"id": "mysb",
-	"version": "beta-1.1",
+	"version": "release-1.2",
 	"name": "MySB - My Scoreboard",
 	"description": "サーバー専用スコアボード管理Mod - バニラクライアント対応、クライアント側インストール不要",
 	"authors": [
