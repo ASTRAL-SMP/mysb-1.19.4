@@ -10,10 +10,16 @@ import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
+import net.minecraft.scoreboard.ScoreboardObjective;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.Set;
 import java.util.Map;
+import java.io.File;
+import java.io.FileReader;
+import java.io.FileWriter;
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 
 public class ServerScoreboardCommands {
 
@@ -76,6 +82,30 @@ public class ServerScoreboardCommands {
                                                 .executes(ServerScoreboardCommands::disableStat)))
                                 .then(CommandManager.literal("list")
                                         .executes(ServerScoreboardCommands::listStatStatus))))
+                .then(CommandManager.literal("discord")
+                        .requires(source -> source.hasPermissionLevel(2)) // OP権限レベル2
+                        .then(CommandManager.literal("setchannel")
+                                .then(CommandManager.argument("channelId", StringArgumentType.string())
+                                        .executes(ServerScoreboardCommands::setForumChannel)))
+                        .then(CommandManager.literal("add")
+                                .then(CommandManager.argument("objective", StringArgumentType.word())
+                                        .suggests(ServerScoreboardCommands::suggestObjectives)
+                                        .executes(ServerScoreboardCommands::addDiscordObjective)))
+                        .then(CommandManager.literal("remove")
+                                .then(CommandManager.argument("objective", StringArgumentType.word())
+                                        .suggests(ServerScoreboardCommands::suggestDiscordObjectives)
+                                        .executes(ServerScoreboardCommands::removeDiscordObjective)))
+                        .then(CommandManager.literal("list")
+                                .executes(ServerScoreboardCommands::listDiscordObjectives))
+                        .then(CommandManager.literal("update")
+                                .then(CommandManager.argument("objective", StringArgumentType.word())
+                                        .suggests(ServerScoreboardCommands::suggestDiscordObjectives)
+                                        .executes(ServerScoreboardCommands::updateDiscordObjective)))
+                        .then(CommandManager.literal("status")
+                                .executes(ServerScoreboardCommands::showDiscordStatus))
+                        .then(CommandManager.literal("reload")
+                                .requires(source -> source.hasPermissionLevel(4)) // OP権限レベル4
+                                .executes(ServerScoreboardCommands::reloadDiscordBot)))
         );
     }
 
@@ -479,5 +509,131 @@ public class ServerScoreboardCommands {
             builder.suggest(playerName);
         }
         return builder.buildFuture();
+    }
+    
+    // Discord Bot関連コマンド
+    private static int setForumChannel(CommandContext<ServerCommandSource> context) {
+        String channelId = StringArgumentType.getString(context, "channelId");
+        SimpleDiscordBot.getInstance().setForumChannel(channelId);
+        context.getSource().sendFeedback(Text.literal("フォーラムチャンネルを設定しました: " + channelId).formatted(Formatting.GREEN), true);
+        return 1;
+    }
+    
+    private static int addDiscordObjective(CommandContext<ServerCommandSource> context) {
+        String objective = StringArgumentType.getString(context, "objective");
+        
+        try {
+            SimpleDiscordBot.getInstance().addScoreboard(objective);
+            context.getSource().sendFeedback(Text.literal("Discord連携を追加しました: " + objective).formatted(Formatting.GREEN), true);
+        } catch (IllegalStateException e) {
+            context.getSource().sendError(Text.literal(e.getMessage()));
+            return 0;
+        }
+        
+        return 1;
+    }
+    
+    private static int removeDiscordObjective(CommandContext<ServerCommandSource> context) {
+        String objective = StringArgumentType.getString(context, "objective");
+        SimpleDiscordBot.getInstance().removeScoreboard(objective);
+        context.getSource().sendFeedback(Text.literal("Discord連携を削除しました: " + objective).formatted(Formatting.YELLOW), true);
+        return 1;
+    }
+    
+    private static int listDiscordObjectives(CommandContext<ServerCommandSource> context) {
+        var threads = SimpleDiscordBot.getInstance().getForumThreads();
+        
+        if (threads.isEmpty()) {
+            context.getSource().sendFeedback(Text.literal("Discord連携されているスコアボードはありません"), false);
+            return 1;
+        }
+        
+        context.getSource().sendFeedback(Text.literal("=== Discord連携スコアボード ===").formatted(Formatting.AQUA), false);
+        for (var entry : threads.entrySet()) {
+            context.getSource().sendFeedback(Text.literal("• " + entry.getKey()).formatted(Formatting.GREEN), false);
+        }
+        
+        return 1;
+    }
+    
+    private static int updateDiscordObjective(CommandContext<ServerCommandSource> context) {
+        String objective = StringArgumentType.getString(context, "objective");
+        SimpleDiscordBot.getInstance().updateScoreboardData(objective);
+        context.getSource().sendFeedback(Text.literal("Discord投稿を更新しました: " + objective).formatted(Formatting.GREEN), true);
+        return 1;
+    }
+    
+    private static int showDiscordStatus(CommandContext<ServerCommandSource> context) {
+        ServerCommandSource source = context.getSource();
+        
+        source.sendFeedback(Text.literal("=== Discord Bot ステータス ===").formatted(Formatting.AQUA), false);
+        source.sendFeedback(Text.literal("状態: " + (SimpleDiscordBot.getInstance().isRunning() ? "起動中" : "停止中"))
+            .formatted(SimpleDiscordBot.getInstance().isRunning() ? Formatting.GREEN : Formatting.RED), false);
+        
+        String forumChannelId = SimpleDiscordBot.getInstance().getForumChannelId();
+        source.sendFeedback(Text.literal("フォーラムチャンネル: " + (forumChannelId != null ? forumChannelId : "未設定"))
+            .formatted(forumChannelId != null ? Formatting.GREEN : Formatting.YELLOW), false);
+        
+        return 1;
+    }
+    
+    static String loadDiscordToken() {
+        try {
+            File file = new File("config/serverscoreboard/discord_bot.json");
+            if (!file.exists()) return "";
+            
+            try (FileReader reader = new FileReader(file)) {
+                JsonObject root = new Gson().fromJson(reader, JsonObject.class);
+                if (root.has("token")) {
+                    return root.get("token").getAsString();
+                }
+            }
+        } catch (Exception e) {
+            ServerScoreboardLogger.error("Failed to load Discord token: " + e.getMessage());
+        }
+        return "";
+    }
+    
+    private static CompletableFuture<Suggestions> suggestObjectives(CommandContext<ServerCommandSource> context, SuggestionsBuilder builder) {
+        for (ScoreboardObjective objective : context.getSource().getServer().getScoreboard().getObjectives()) {
+            builder.suggest(objective.getName());
+        }
+        return builder.buildFuture();
+    }
+    
+    private static CompletableFuture<Suggestions> suggestDiscordObjectives(CommandContext<ServerCommandSource> context, SuggestionsBuilder builder) {
+        for (String objective : SimpleDiscordBot.getInstance().getForumThreads().keySet()) {
+            builder.suggest(objective);
+        }
+        return builder.buildFuture();
+    }
+    
+    private static int reloadDiscordBot(CommandContext<ServerCommandSource> context) {
+        try {
+            ServerCommandSource source = context.getSource();
+            source.sendFeedback(Text.literal("Discord Botを再起動しています...").formatted(Formatting.YELLOW), true);
+            
+            SimpleDiscordBot.getInstance().reload(source.getServer());
+            
+            // 少し待ってから結果を表示
+            source.getServer().execute(() -> {
+                try {
+                    Thread.sleep(2000); // 2秒待機
+                    if (SimpleDiscordBot.getInstance().isRunning()) {
+                        source.sendFeedback(Text.literal("Discord Botが正常に再起動されました").formatted(Formatting.GREEN), true);
+                    } else {
+                        source.sendError(Text.literal("Discord Botの再起動に失敗しました。設定ファイルを確認してください。"));
+                    }
+                } catch (InterruptedException e) {
+                    // 無視
+                }
+            });
+            
+            return 1;
+        } catch (Exception e) {
+            ServerScoreboardLogger.error("Error reloading Discord bot", e);
+            context.getSource().sendError(Text.literal("Discord Botの再起動中にエラーが発生しました: " + e.getMessage()));
+            return 0;
+        }
     }
 }

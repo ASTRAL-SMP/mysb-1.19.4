@@ -383,6 +383,7 @@ public class TotalStatsManager {
         int total = 0;
         boolean hasChanged = false;
         
+        // オンラインプレイヤーの統計を更新・取得
         for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
             String playerName = player.getName().getString();
             // 除外リストに含まれているプレイヤーはスキップ
@@ -394,6 +395,23 @@ public class TotalStatsManager {
             if (playerTotal > 0) {
                 playerStats.put(playerName, playerTotal);
                 total += playerTotal;
+                // キャッシュに保存
+                PlayerStatsCache.updatePlayerStats(playerName, config.statType, playerTotal);
+            }
+        }
+        
+        // オフラインプレイヤーのキャッシュデータも含める
+        Map<String, Integer> cachedStats = PlayerStatsCache.getAllPlayerStats(config.statType);
+        for (Map.Entry<String, Integer> entry : cachedStats.entrySet()) {
+            String playerName = entry.getKey();
+            // 除外リストに含まれているプレイヤーはスキップ
+            if (excludedPlayers.contains(playerName)) {
+                continue;
+            }
+            // オンラインプレイヤーのデータは既に含まれているのでスキップ
+            if (!playerStats.containsKey(playerName) && entry.getValue() > 0) {
+                playerStats.put(playerName, entry.getValue());
+                total += entry.getValue();
             }
         }
         
@@ -504,7 +522,7 @@ public class TotalStatsManager {
         }
     }
     
-    private static int getPlayerStatTotal(ServerPlayerEntity player, String statType) {
+    public static int getPlayerStatTotal(ServerPlayerEntity player, String statType) {
         int total = 0;
         
         // 統計タイプに基づいて適切な値を取得

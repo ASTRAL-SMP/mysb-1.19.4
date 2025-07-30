@@ -18,6 +18,12 @@ public class ServerScoreboardConfig {
     public static final boolean REQUIRE_OP_FOR_SELF_CUSTOM = false; // カスタムスコアボードの自己変更にOP権限が必要か
     public static final int SELF_MODIFICATION_OP_LEVEL = 0; // 自己変更に必要なOPレベル（0=全員可能）
     
+    // Discord Bot設定
+    public static String DISCORD_BOT_TOKEN = ""; // Discord Botトークン
+    public static String DISCORD_FORUM_CHANNEL_ID = ""; // フォーラムチャンネルID
+    public static boolean DISCORD_BOT_ENABLED = false; // Discord Bot機能の有効/無効
+    public static int DISCORD_COMMAND_OP_LEVEL = 2; // Discord連携コマンドに必要なOPレベル
+    
     public static boolean isValidObjectiveName(String name) {
         if (name == null || name.trim().isEmpty()) {
             return false;

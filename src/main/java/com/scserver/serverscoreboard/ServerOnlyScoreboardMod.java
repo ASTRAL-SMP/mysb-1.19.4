@@ -72,13 +72,27 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
         // トータル統計システムの初期化（データ読み込み前に必要）
         TotalStatsManager.init(server);
         
+        // プレイヤー統計キャッシュの初期化
+        PlayerStatsCache.initialize(server);
+        
         // scoreboard.datファイルの読み込み（TotalStatsManager設定も含む）
         ServerScoreboardManager.loadScoreboardData(server);
+        
+        // Discord Botの初期化
+        SimpleDiscordBot.getInstance().initialize(server);
     }
 
     private void onServerStopping(MinecraftServer server) {
         // サーバー停止時にデータを保存
         ServerScoreboardManager.saveScoreboardData(server);
+        
+        // プレイヤー統計キャッシュを保存
+        PlayerStatsCache.saveCache();
+        
+        // Discord Botのシャットダウン
+        if (SimpleDiscordBot.getInstance().isRunning()) {
+            SimpleDiscordBot.getInstance().shutdown();
+        }
     }
 
     private void onPlayerJoin(net.minecraft.server.network.ServerPlayNetworkHandler handler, net.fabricmc.fabric.api.networking.v1.PacketSender sender, MinecraftServer server) {
@@ -97,5 +111,10 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
         
         // 毎ティックで統計をチェック（変更がある場合のみ更新）
         TotalStatsManager.updateAllTotalStats();
+        
+        // 5分ごとにキャッシュを保存（300秒 * 20 ticks/秒 = 6000 ticks）
+        if (server.getTicks() % 6000 == 0) {
+            PlayerStatsCache.saveCache();
+        }
     }
 }

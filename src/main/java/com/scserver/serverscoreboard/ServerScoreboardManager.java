@@ -409,7 +409,20 @@ public class ServerScoreboardManager {
     public static void onPlayerDisconnect(ServerPlayerEntity player) {
         // プレイヤー切断時のクリーンアップ
         UUID playerId = player.getUuid();
-        ServerScoreboardLogger.info("Player " + player.getName().getString() + " disconnected, cleaning up scoreboard");
+        String playerName = player.getName().getString();
+        ServerScoreboardLogger.info("Player " + playerName + " disconnected, cleaning up scoreboard");
+        
+        // プレイヤーの統計をキャッシュに保存
+        if (!TotalStatsManager.isPlayerExcluded(playerName)) {
+            Map<String, String> allStats = TotalStatsManager.getAllAvailableStats();
+            for (String statId : allStats.keySet()) {
+                int statValue = TotalStatsManager.getPlayerStatTotal(player, statId);
+                if (statValue > 0) {
+                    PlayerStatsCache.updatePlayerStats(playerName, statId, statValue);
+                }
+            }
+            ServerScoreboardLogger.debug("Cached stats for player: " + playerName);
+        }
         
         // オブジェクティブの監視を停止
         clearPlayerWatchers(playerId);
@@ -735,6 +748,28 @@ public class ServerScoreboardManager {
         }
     }
     
+    
+    // Discord用のフォーマット済みスコアボードデータを取得
+    public static String getFormattedScoreboardData(ScoreboardObjective objective) {
+        if (objective == null) return "データがありません";
+        
+        StringBuilder builder = new StringBuilder();
+        builder.append("【").append(objective.getDisplayName().getString()).append("】\n");
+        builder.append("─".repeat(30)).append("\n");
+        
+        // スコアを取得してソート
+        var scores = server.getScoreboard().getAllPlayerScores(objective);
+        scores.stream()
+            .sorted((a, b) -> Integer.compare(b.getScore(), a.getScore()))
+            .limit(15) // 上位15件まで
+            .forEach(score -> {
+                builder.append(String.format("%-16s %8d\n", 
+                    score.getPlayerName(), 
+                    score.getScore()));
+            });
+        
+        return builder.toString();
+    }
     
     // 統計スコアボードを表示しているすべてのプレイヤーに更新を送信
     public static void updateTotalStatsForWatchers() {
