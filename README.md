@@ -18,6 +18,13 @@ Players can modify their own scoreboard display.
 - ✅ レート制限
 - ✅ **プレイヤー自身によるスコアボード表示変更機能**
 - ✅ **トータル統計機能** - サーバー全体の統計を表示（競争意識の向上）
+- ✅ **Discord Bot連携** - 統計データをDiscordに自動投稿
+
+## 更新履歴 (Update History)
+### 2025/07/30
+- **バグ修正**: サーバー停止時にプロセスが正常に終了しない問題を修正
+  - Discord Bot のスケジューラーが適切にシャットダウンされていなかった問題を解決
+  - Windows環境でサーバー停止後に「キーを押してください」のプロンプトが表示されない問題を修正
 
 ## インストール (Installation)
 **重要**: このmodは**サーバー側にのみ**インストールしてください。
@@ -47,6 +54,10 @@ Installing on the client side will have no effect.
 /mysb admin stats disable <stat>  # 統計を無効化（OPレベル3以上） / Disable a statistic (OP level 3+)
 /mysb admin stats list            # 統計の有効/無効状態を表示 / Show enabled/disabled stats
 /mysb admin gui             # 統計管理GUIを開く / Open statistics management GUI
+/mysb discord set-channel <フォーラムチャンネルID>  # Discord投稿先を設定 / Set Discord forum channel
+/mysb discord add <スコアボード名>  # スコアボードをDiscordに追加 / Add scoreboard to Discord
+/mysb discord remove <スコアボード名>  # スコアボードをDiscordから削除 / Remove from Discord
+/mysb discord list  # Discord連携中のスコアボード一覧 / List Discord-linked scoreboards
 ```
 
 #### 利用可能な統計タイプ (Available Stat Types)
@@ -100,6 +111,22 @@ Installing on the client side will have no effect.
 - 各統計には個別プレイヤーのスコアとサーバー合計が表示されます / Each statistic shows individual player scores and server total
 - 統計は5秒ごとに自動更新されます / Statistics update automatically every 5 seconds
 - GUIには別ページがあり、ナビゲーション可能です / GUI has separate pages with navigation
+
+### Discord Bot連携 (Discord Bot Integration)
+統計データをDiscordのフォーラムチャンネルに自動投稿する機能です。 / Automatically posts statistics to Discord forum channels.
+
+1. **Discord Botの設定** / **Discord Bot Setup**:
+   - `config/serverscoreboard/discord_bot.json` にBotトークンを設定 / Set bot token in config file
+   - Botに必要な権限: メッセージ送信、スレッド作成、スラッシュコマンド / Required permissions: Send messages, Create threads, Slash commands
+
+2. **使用方法** / **Usage**:
+   - `/mysb discord set-channel <ID>` でフォーラムチャンネルを設定 / Set forum channel
+   - `/mysb discord add <スコアボード名>` で統計を追加 / Add statistics
+   - 毎朝5時に自動更新 / Updates automatically at 5 AM daily
+
+3. **Discord スラッシュコマンド** / **Discord Slash Commands**:
+   - `/scoreboard <objective>` - スコアボードデータを表示 / Display scoreboard data
+   - `/scoreboard-setchannel` - フォーラムチャンネルを設定 / Set forum channel
 
 ## 権限設定 (Permission Settings)
 `ServerScoreboardConfig.java` で以下の設定を変更できます：
