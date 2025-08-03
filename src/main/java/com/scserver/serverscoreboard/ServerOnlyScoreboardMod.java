@@ -11,10 +11,21 @@ import net.minecraft.server.network.ServerPlayNetworkHandler;
 import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
+import net.fabricmc.fabric.api.event.player.UseItemCallback;
+import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
 import net.minecraft.util.ActionResult;
+import net.minecraft.util.TypedActionResult;
+import net.fabricmc.loader.api.FabricLoader;
 
 public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
     public static final String MOD_ID = "mysb";
+    
+    public static String getModVersion() {
+        return FabricLoader.getInstance()
+                .getModContainer(MOD_ID)
+                .map(modContainer -> modContainer.getMetadata().getVersion().getFriendlyString())
+                .orElse("Unknown");
+    }
 
     @Override
     public void onInitializeServer() {
@@ -42,6 +53,12 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
         // プレイヤーのアクションイベント（統計のリアルタイム更新用）
         PlayerBlockBreakEvents.AFTER.register((world, player, pos, state, entity) -> {
             if (!world.isClient && player instanceof ServerPlayerEntity) {
+                // デバッグログ
+                ServerScoreboardLogger.debug(String.format("ブロック破壊: %s が %s を破壊しました (位置: %s)", 
+                    player.getName().getString(), 
+                    state.getBlock().getName().getString(), 
+                    pos.toString()));
+                
                 // ブロック破壊時に統計を強制更新
                 world.getServer().execute(() -> TotalStatsManager.forceUpdateAllStats());
             }
@@ -49,6 +66,14 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
         
         UseBlockCallback.EVENT.register((player, world, hand, hitResult) -> {
             if (!world.isClient && player instanceof ServerPlayerEntity) {
+                // デバッグログ（ブロック設置の可能性）
+                if (player.getStackInHand(hand) != null && !player.getStackInHand(hand).isEmpty()) {
+                    ServerScoreboardLogger.debug(String.format("ブロック使用: %s が %s を使用しました (位置: %s)", 
+                        player.getName().getString(), 
+                        player.getStackInHand(hand).getName().getString(), 
+                        hitResult.getBlockPos().toString()));
+                }
+                
                 // ブロック設置時に統計を強制更新（2tick後）
                 if (world.getServer() != null) {
                     world.getServer().execute(() -> {
@@ -66,9 +91,40 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
                 entity.getServer().execute(() -> TotalStatsManager.forceUpdateAllStats());
             }
         });
+        
+        // アイテム使用時のイベント
+        UseItemCallback.EVENT.register((player, world, hand) -> {
+            if (!world.isClient && player instanceof ServerPlayerEntity) {
+                // アイテム使用時に統計を強制更新（1tick後）
+                if (player.getServer() != null) {
+                    player.getServer().execute(() -> {
+                        player.getServer().execute(() -> TotalStatsManager.forceUpdateAllStats());
+                    });
+                }
+            }
+            return TypedActionResult.pass(player.getStackInHand(hand));
+        });
+        
+        // エンティティ攻撃時のイベント（キル統計用）
+        AttackEntityCallback.EVENT.register((player, world, hand, entity, hitResult) -> {
+            if (!world.isClient && player instanceof ServerPlayerEntity) {
+                // 攻撃時に統計を強制更新（2tick後、キルが確定してから）
+                if (player.getServer() != null) {
+                    player.getServer().execute(() -> {
+                        player.getServer().execute(() -> {
+                            player.getServer().execute(() -> TotalStatsManager.forceUpdateAllStats());
+                        });
+                    });
+                }
+            }
+            return ActionResult.PASS;
+        });
     }
 
     private void onServerStarted(MinecraftServer server) {
+        // ロガーにサーバーを設定
+        ServerScoreboardLogger.setServer(server);
+        
         // トータル統計システムの初期化（データ読み込み前に必要）
         TotalStatsManager.init(server);
         
@@ -80,6 +136,11 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
         
         // Discord Botの初期化
         SimpleDiscordBot.getInstance().initialize(server);
+        
+        // デバッグモードの状態をログに記録
+        if (ServerScoreboardConfig.DEBUG_MODE_ENABLED) {
+            ServerScoreboardLogger.info("Debug mode is ENABLED");
+        }
     }
 
     private void onServerStopping(MinecraftServer server) {

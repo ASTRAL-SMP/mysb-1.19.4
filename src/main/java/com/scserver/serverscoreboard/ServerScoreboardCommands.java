@@ -106,6 +106,15 @@ public class ServerScoreboardCommands {
                         .then(CommandManager.literal("reload")
                                 .requires(source -> source.hasPermissionLevel(4)) // OP権限レベル4
                                 .executes(ServerScoreboardCommands::reloadDiscordBot)))
+                .then(CommandManager.literal("debug")
+                        .requires(source -> source.hasPermissionLevel(2)) // OP権限レベル2
+                        .executes(ServerScoreboardCommands::toggleDebugMode)
+                        .then(CommandManager.literal("on")
+                                .executes(ServerScoreboardCommands::enableDebugMode))
+                        .then(CommandManager.literal("off")
+                                .executes(ServerScoreboardCommands::disableDebugMode)))
+                .then(CommandManager.literal("version")
+                        .executes(ServerScoreboardCommands::showVersion))
         );
     }
 
@@ -635,5 +644,66 @@ public class ServerScoreboardCommands {
             context.getSource().sendError(Text.literal("Discord Botの再起動中にエラーが発生しました: " + e.getMessage()));
             return 0;
         }
+    }
+    
+    private static int toggleDebugMode(CommandContext<ServerCommandSource> context) {
+        ServerScoreboardConfig.DEBUG_MODE_ENABLED = !ServerScoreboardConfig.DEBUG_MODE_ENABLED;
+        
+        if (ServerScoreboardConfig.DEBUG_MODE_ENABLED) {
+            context.getSource().sendFeedback(
+                Text.literal("デバッグモードが有効になりました").formatted(Formatting.GREEN), 
+                true
+            );
+            ServerScoreboardLogger.info("Debug mode ENABLED by " + context.getSource().getName());
+        } else {
+            context.getSource().sendFeedback(
+                Text.literal("デバッグモードが無効になりました").formatted(Formatting.RED), 
+                true
+            );
+            ServerScoreboardLogger.info("Debug mode DISABLED by " + context.getSource().getName());
+        }
+        
+        return 1;
+    }
+    
+    private static int enableDebugMode(CommandContext<ServerCommandSource> context) {
+        ServerScoreboardConfig.DEBUG_MODE_ENABLED = true;
+        context.getSource().sendFeedback(
+            Text.literal("デバッグモードが有効になりました").formatted(Formatting.GREEN), 
+            true
+        );
+        ServerScoreboardLogger.info("Debug mode ENABLED by " + context.getSource().getName());
+        
+        // 設定の詳細を表示
+        context.getSource().sendFeedback(
+            Text.literal("デバッグメッセージは").formatted(Formatting.GRAY)
+                .append(ServerScoreboardConfig.DEBUG_BROADCAST_TO_OPS ? 
+                    Text.literal("OP権限者のみ").formatted(Formatting.YELLOW) : 
+                    Text.literal("全員").formatted(Formatting.YELLOW))
+                .append(Text.literal("に送信されます").formatted(Formatting.GRAY)), 
+            false
+        );
+        
+        return 1;
+    }
+    
+    private static int disableDebugMode(CommandContext<ServerCommandSource> context) {
+        ServerScoreboardConfig.DEBUG_MODE_ENABLED = false;
+        context.getSource().sendFeedback(
+            Text.literal("デバッグモードが無効になりました").formatted(Formatting.RED), 
+            true
+        );
+        ServerScoreboardLogger.info("Debug mode DISABLED by " + context.getSource().getName());
+        return 1;
+    }
+    
+    private static int showVersion(CommandContext<ServerCommandSource> context) {
+        context.getSource().sendFeedback(
+            Text.literal("MySB - My Scoreboard").formatted(Formatting.GOLD)
+                .append(Text.literal(" Version: ").formatted(Formatting.GRAY))
+                .append(Text.literal(ServerOnlyScoreboardMod.getModVersion()).formatted(Formatting.AQUA)),
+            false
+        );
+        return 1;
     }
 }

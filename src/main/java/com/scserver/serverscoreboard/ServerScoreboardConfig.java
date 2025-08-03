@@ -24,6 +24,11 @@ public class ServerScoreboardConfig {
     public static boolean DISCORD_BOT_ENABLED = false; // Discord Bot機能の有効/無効
     public static int DISCORD_COMMAND_OP_LEVEL = 2; // Discord連携コマンドに必要なOPレベル
     
+    // デバッグモード設定
+    public static boolean DEBUG_MODE_ENABLED = false; // デバッグモードの有効/無効
+    public static boolean DEBUG_BROADCAST_TO_OPS = true; // デバッグメッセージをOP権限者にのみ送信
+    public static int DEBUG_LOG_OP_LEVEL = 2; // デバッグログを受信するのに必要なOPレベル
+    
     public static boolean isValidObjectiveName(String name) {
         if (name == null || name.trim().isEmpty()) {
             return false;
