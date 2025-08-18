@@ -16,7 +16,9 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.net.http.WebSocket;
 import java.nio.ByteBuffer;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.zip.Inflater;
 import java.util.zip.DataFormatException;
 import java.util.function.Consumer;
@@ -35,10 +37,12 @@ public class SimpleDiscordBot implements WebSocket.Listener {
     private String applicationId;
     private String forumChannelId;
     private MinecraftServer server;
-    private boolean isRunning = false;
-    private WebSocket webSocket;
+    private volatile boolean isRunning = false;
+    private volatile WebSocket webSocket;
     private String sessionId;
     private ScheduledFuture<?> heartbeatTask;
+    private final AtomicBoolean isReconnecting = new AtomicBoolean(false);
+    private final AtomicLong reconnectDelay = new AtomicLong(5000); // Start with 5 seconds
     
     private SimpleDiscordBot() {}
     
@@ -306,8 +310,12 @@ public class SimpleDiscordBot implements WebSocket.Listener {
     }
     
     private void connectToGateway() {
+        if (webSocket != null && !webSocket.isOutputClosed()) {
+            ServerScoreboardLogger.info("WebSocket connection already established.");
+            return;
+        }
+        
         try {
-            // Gateway URLを取得
             HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("https://discord.com/api/v10/gateway/bot"))
                 .header("Authorization", "Bot " + botToken)
@@ -319,20 +327,26 @@ public class SimpleDiscordBot implements WebSocket.Listener {
                 JsonObject gateway = JsonParser.parseString(response.body()).getAsJsonObject();
                 String wsUrl = gateway.get("url").getAsString() + "?v=10&encoding=json";
                 
-                // WebSocket接続
                 httpClient.newWebSocketBuilder()
                     .buildAsync(URI.create(wsUrl), this)
                     .thenAccept(ws -> {
                         this.webSocket = ws;
                         ServerScoreboardLogger.info("WebSocket connection established");
+                        isReconnecting.set(false);
+                        reconnectDelay.set(5000); // Reset reconnect delay on successful connection
                     })
                     .exceptionally(ex -> {
                         ServerScoreboardLogger.error("Failed to establish WebSocket connection: " + ex.getMessage());
+                        scheduleReconnect();
                         return null;
                     });
+            } else {
+                 ServerScoreboardLogger.error("Failed to get gateway URL: " + response.body());
+                 scheduleReconnect();
             }
         } catch (Exception e) {
             ServerScoreboardLogger.error("Failed to connect to Discord Gateway: " + e.getMessage());
+            scheduleReconnect();
         }
     }
     
@@ -405,21 +419,42 @@ public class SimpleDiscordBot implements WebSocket.Listener {
     @Override
     public void onError(WebSocket webSocket, Throwable error) {
         ServerScoreboardLogger.error("WebSocket error: " + error.getMessage());
+        scheduleReconnect();
+    }
+
+    @Override
+    public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
+        ServerScoreboardLogger.warn("WebSocket closed with code " + statusCode + " and reason: " + reason);
+        scheduleReconnect();
+        return null;
     }
     
     private void handleGatewayMessage(String message) {
         JsonObject payload = JsonParser.parseString(message).getAsJsonObject();
         int op = payload.get("op").getAsInt();
         
+        if (payload.has("s") && !payload.get("s").isJsonNull()) {
+            sequence.set(payload.get("s").getAsInt());
+        }
+
         switch (op) {
             case 0: // Dispatch
                 handleDispatch(payload);
+                break;
+            case 7: // Reconnect
+                ServerScoreboardLogger.info("Received Reconnect from Discord. Reconnecting...");
+                reconnect();
+                break;
+            case 9: // Invalid Session
+                ServerScoreboardLogger.warn("Invalid session. Re-identifying...");
+                sessionId = null; // Force re-identify
+                sequence.set(0);
+                reconnect();
                 break;
             case 10: // Hello
                 handleHello(payload);
                 break;
             case 11: // Heartbeat ACK
-                // 正常
                 break;
         }
     }
@@ -428,22 +463,32 @@ public class SimpleDiscordBot implements WebSocket.Listener {
         JsonObject d = payload.getAsJsonObject("d");
         int heartbeatInterval = d.get("heartbeat_interval").getAsInt();
         
-        // Heartbeatを開始
+        if (heartbeatTask != null) {
+            heartbeatTask.cancel(true);
+        }
         startHeartbeat(heartbeatInterval);
         
-        // Identify送信
-        sendIdentify();
+        if (sessionId == null) {
+            sendIdentify();
+        } else {
+            sendResume();
+        }
     }
     
     private void startHeartbeat(int interval) {
         heartbeatTask = scheduler.scheduleAtFixedRate(() -> {
-            if (webSocket != null) {
-                JsonObject heartbeat = new JsonObject();
-                heartbeat.addProperty("op", 1);
-                heartbeat.add("d", sequence.get() == 0 ? JsonNull.INSTANCE : new JsonPrimitive(sequence.get()));
-                webSocket.sendText(heartbeat.toString(), true);
+            if (webSocket != null && !webSocket.isOutputClosed()) {
+                try {
+                    JsonObject heartbeat = new JsonObject();
+                    heartbeat.addProperty("op", 1);
+                    heartbeat.add("d", sequence.get() == 0 ? JsonNull.INSTANCE : new JsonPrimitive(sequence.get()));
+                    webSocket.sendText(heartbeat.toString(), true);
+                } catch (Exception e) {
+                    ServerScoreboardLogger.error("Failed to send heartbeat: " + e.getMessage());
+                    scheduleReconnect();
+                }
             }
-        }, interval, interval, TimeUnit.MILLISECONDS);
+        }, 0, interval, TimeUnit.MILLISECONDS);
     }
     
     private void sendIdentify() {
@@ -469,18 +514,19 @@ public class SimpleDiscordBot implements WebSocket.Listener {
     private void handleDispatch(JsonObject payload) {
         String t = payload.get("t").getAsString();
         JsonObject d = payload.getAsJsonObject("d");
-        sequence.set(payload.get("s").getAsInt());
         
         switch (t) {
             case "READY":
                 sessionId = d.get("session_id").getAsString();
                 ServerScoreboardLogger.info("Discord Bot ready - Session ID: " + sessionId);
-                // READYイベントを受信したらBot IDを取得
                 if (d.has("user")) {
                     JsonObject user = d.getAsJsonObject("user");
                     applicationId = user.get("id").getAsString();
                     ServerScoreboardLogger.info("Bot ID confirmed: " + applicationId);
                 }
+                break;
+            case "RESUMED":
+                ServerScoreboardLogger.info("Successfully resumed session.");
                 break;
             case "INTERACTION_CREATE":
                 handleInteraction(d);
@@ -723,28 +769,25 @@ public class SimpleDiscordBot implements WebSocket.Listener {
     
     public void shutdown() {
         isRunning = false;
+        isReconnecting.set(false);
         
-        // Heartbeatタスクをキャンセル
         if (heartbeatTask != null) {
             heartbeatTask.cancel(true);
             heartbeatTask = null;
         }
         
-        // WebSocketを閉じる
         if (webSocket != null) {
             try {
                 webSocket.sendClose(WebSocket.NORMAL_CLOSURE, "Shutting down").join();
             } catch (Exception e) {
-                // 無視
+                // Ignore
             }
             webSocket = null;
         }
         
-        // スケジューラーをシャットダウン
         if (scheduler != null && !scheduler.isShutdown()) {
             scheduler.shutdown();
             try {
-                // 5秒待機してタスクの完了を待つ
                 if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
                     scheduler.shutdownNow();
                 }
@@ -756,18 +799,60 @@ public class SimpleDiscordBot implements WebSocket.Listener {
     }
     
     public void reload(MinecraftServer server) {
-        // 既存の接続をシャットダウン
         shutdown();
-        
-        // 新しいスケジューラーを作成（shutdown()でシャットダウンされるため常に新規作成）
         scheduler = Executors.newScheduledThreadPool(3);
-        
-        // 少し待機してから再初期化
-        scheduler.schedule(() -> {
-            initialize(server);
-        }, 1, TimeUnit.SECONDS);
+        scheduler.schedule(() -> initialize(server), 1, TimeUnit.SECONDS);
     }
     
+    private void reconnect() {
+        if (webSocket != null) {
+            try {
+                webSocket.sendClose(WebSocket.NORMAL_CLOSURE, "Reconnecting").join();
+            } catch (Exception e) {
+                // Ignore
+            }
+            webSocket = null;
+        }
+        if (heartbeatTask != null) {
+            heartbeatTask.cancel(true);
+        }
+        scheduleReconnect();
+    }
+
+    private void scheduleReconnect() {
+        if (!isReconnecting.compareAndSet(false, true)) {
+            return;
+        }
+        
+        long delay = reconnectDelay.get();
+        ServerScoreboardLogger.info("Scheduling reconnect in " + delay + "ms");
+
+        scheduler.schedule(() -> {
+            ServerScoreboardLogger.info("Attempting to reconnect...");
+            isReconnecting.set(false);
+            connectToGateway();
+        }, delay, TimeUnit.MILLISECONDS);
+
+        // Exponential backoff
+        reconnectDelay.set(Math.min(delay * 2, 300000)); // Max 5 minutes
+    }
+
+    private void sendResume() {
+        if (webSocket != null) {
+            JsonObject resume = new JsonObject();
+            resume.addProperty("op", 6);
+
+            JsonObject d = new JsonObject();
+            d.addProperty("token", botToken);
+            d.addProperty("session_id", sessionId);
+            d.addProperty("seq", sequence.get());
+            resume.add("d", d);
+
+            webSocket.sendText(resume.toString(), true);
+            ServerScoreboardLogger.info("Sent resume request.");
+        }
+    }
+
     private String getFormattedScoreboardDataForDiscord(ScoreboardObjective objective) {
         if (server == null) return "";
         
