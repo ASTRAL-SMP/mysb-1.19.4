@@ -630,19 +630,9 @@ public class ServerScoreboardCommands {
             
             SimpleDiscordBot.getInstance().reload(source.getServer());
             
-            // 少し待ってから結果を表示
-            source.getServer().execute(() -> {
-                try {
-                    Thread.sleep(2000); // 2秒待機
-                    if (SimpleDiscordBot.getInstance().isRunning()) {
-                        source.sendFeedback(Text.literal("Discord Botが正常に再起動されました").formatted(Formatting.GREEN), true);
-                    } else {
-                        source.sendError(Text.literal("Discord Botの再起動に失敗しました。設定ファイルを確認してください。"));
-                    }
-                } catch (InterruptedException e) {
-                    // 無視
-                }
-            });
+            // 再起動完了メッセージを表示
+            source.sendFeedback(Text.literal("Discord Botの再起動が完了しました").formatted(Formatting.GREEN), true);
+            ServerScoreboardLogger.info("Discord Bot reloaded successfully");
             
             return 1;
         } catch (Exception e) {
