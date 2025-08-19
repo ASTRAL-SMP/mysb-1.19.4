@@ -29,6 +29,7 @@ public class ServerScoreboardManager {
     private static final Map<String, Set<UUID>> objectiveWatchers = new ConcurrentHashMap<>();
     private static final Map<UUID, CustomScoreboardData> customScoreboardData = new ConcurrentHashMap<>();
     private static final Map<UUID, ScoreboardTransformData> transformData = new ConcurrentHashMap<>();
+    private static final Set<UUID> playersToUpdate = new HashSet<>();
     private static MinecraftServer server;
     private static int tickCounter = 0;
 
@@ -439,7 +440,7 @@ public class ServerScoreboardManager {
         for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
             PlayerScoreboardData data = playerData.get(player.getUuid());
             if (data != null && data.isDirty()) {
-                updatePlayerScoreboard(player, data);
+                playersToUpdate.add(player.getUuid());
                 data.setDirty(false);
             }
         }
@@ -448,6 +449,29 @@ public class ServerScoreboardManager {
         if (tickCounter % 5 == 0) {
             checkAndUpdateScoreboards();
         }
+
+        if (tickCounter % 200 == 0) {
+            processScoreboardUpdateQueue();
+        }
+    }
+
+    public static void processScoreboardUpdateQueue() {
+        if (playersToUpdate.isEmpty()) {
+            return;
+        }
+
+        ServerScoreboardLogger.info("Processing scoreboard update queue for " + playersToUpdate.size() + " players");
+
+        for (UUID playerId : playersToUpdate) {
+            ServerPlayerEntity player = server.getPlayerManager().getPlayer(playerId);
+            if (player != null) {
+                PlayerScoreboardData data = playerData.get(playerId);
+                if (data != null) {
+                    updatePlayerScoreboard(player, data);
+                }
+            }
+        }
+        playersToUpdate.clear();
     }
     
     private static void checkAndUpdateScoreboards() {
@@ -633,7 +657,7 @@ public class ServerScoreboardManager {
     
     // 自動変換関連のメソッド
     public static void checkAndApplyAutoTransforms(ServerPlayerEntity player) {
-        if (!ScoreboardAutoTransform.isAutoApplyEnabled()) return;
+        if (!ScoreboardAutoTransform.isAutoApplyEnabled()) return; 
         
         // サーバーのスコアボードから現在表示中のオブジェクティブを取得
         server.getScoreboard().getObjectives().forEach(objective -> {
@@ -763,7 +787,7 @@ public class ServerScoreboardManager {
             .sorted((a, b) -> Integer.compare(b.getScore(), a.getScore()))
             .limit(15) // 上位15件まで
             .forEach(score -> {
-                builder.append(String.format("%-16s %8d\n", 
+                builder.append(String.format("% -16s %8d\n", 
                     score.getPlayerName(), 
                     score.getScore()));
             });
@@ -778,10 +802,7 @@ public class ServerScoreboardManager {
             if (data != null && data.isEnabled() && !data.getDisplayObjective().isEmpty()) {
                 String objective = data.getDisplayObjective();
                 if (TotalStatsManager.isTotalObjective(objective)) {
-                    ScoreboardObjective obj = server.getScoreboard().getObjective(objective);
-                    if (obj != null) {
-                        sendScoreboardUpdatePackets(player, obj);
-                    }
+                    playersToUpdate.add(player.getUuid());
                 }
             }
         }
