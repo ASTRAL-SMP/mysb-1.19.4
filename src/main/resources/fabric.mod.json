@@ -1,11 +1,11 @@
 {
 	"schemaVersion": 1,
-	"id": "mysb",
+	"id": "serverscoreboard",
 	"version": "${version}",
 	"name": "MySB - My Scoreboard",
 	"description": "サーバー専用スコアボード管理Mod - バニラクライアント対応、クライアント側インストール不要",
 	"authors": [
-		"YourName"
+		"Sim_256"
 	],
 	"license": "MIT",
 	"icon": "assets/serverscoreboard/icon.png",
