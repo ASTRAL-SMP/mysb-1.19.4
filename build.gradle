@@ -1,0 +1,83 @@
+plugins {
+	id 'fabric-loom' version '1.0.12'
+	id 'maven-publish'
+}
+
+version = project.mod_version
+group = project.maven_group
+
+repositories {
+	mavenCentral()
+	maven {
+		name = 'Fabric'
+		url = 'https://maven.fabricmc.net/'
+	}
+	maven {
+		name = 'dv8tion'
+		url = 'https://m2.dv8tion.net/releases'
+	}
+}
+dependencies {
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+	
+	// Gson for JSON handling (already included in Minecraft)
+	// No additional dependencies needed for HTTP client (Java 11+ has built-in HttpClient)
+	
+	// Discord JDA - 削除（Webhookベースに移行）
+	/*
+	implementation "net.dv8tion:JDA:5.0.0-beta.20"
+	include "net.dv8tion:JDA:5.0.0-beta.20"
+	
+	// JDA dependencies
+	implementation "org.apache.commons:commons-collections4:4.4"
+	include "org.apache.commons:commons-collections4:4.4"
+	implementation "com.neovisionaries:nv-websocket-client:2.14"
+	include "com.neovisionaries:nv-websocket-client:2.14"
+	implementation "com.squareup.okhttp3:okhttp:4.12.0"
+	include "com.squareup.okhttp3:okhttp:4.12.0"
+	implementation "com.squareup.okio:okio:3.7.0"
+	include "com.squareup.okio:okio:3.7.0"
+	implementation "org.jetbrains.kotlin:kotlin-stdlib:1.9.22"
+	include "org.jetbrains.kotlin:kotlin-stdlib:1.9.22"
+	implementation "com.fasterxml.jackson.core:jackson-databind:2.16.1"
+	include "com.fasterxml.jackson.core:jackson-databind:2.16.1"
+	implementation "com.fasterxml.jackson.core:jackson-core:2.16.1"
+	include "com.fasterxml.jackson.core:jackson-core:2.16.1"
+	implementation "com.fasterxml.jackson.core:jackson-annotations:2.16.1"
+	include "com.fasterxml.jackson.core:jackson-annotations:2.16.1"
+	implementation "net.sf.trove4j:trove4j:3.0.3"
+	include "net.sf.trove4j:trove4j:3.0.3"
+	*/
+}
+
+processResources {
+	inputs.property "version", project.version
+	inputs.property "minecraft_version", project.minecraft_version
+	inputs.property "loader_version", project.loader_version
+	filteringCharset "UTF-8"
+
+	filesMatching("fabric.mod.json") {
+		expand "version": project.version,
+				"minecraft_version": project.minecraft_version,
+				"loader_version": project.loader_version
+	}
+}
+
+java {
+	toolchain.languageVersion = JavaLanguageVersion.of(17)
+	withSourcesJar()
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.encoding = "UTF-8"
+	it.options.release = 17
+}
+
+jar {
+	from("LICENSE") {
+		rename { "${it}_${project.archivesBaseName}" }
+	}
+}
