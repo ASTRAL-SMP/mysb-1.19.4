@@ -663,7 +663,7 @@ public class ServerScoreboardCommands {
     }
     
     private static int enableDebugMode(CommandContext<ServerCommandSource> context) {
-        ServerScoreboardConfig.DEBUG_MODE_ENABLED = true;
+        ServerScoreboardConfig.DEBUG_MODE_ENABLED = false;
         context.getSource().sendFeedback(
             Text.literal("デバッグモードが有効になりました").formatted(Formatting.GREEN), 
             true

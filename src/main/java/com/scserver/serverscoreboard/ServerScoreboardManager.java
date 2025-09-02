@@ -35,6 +35,9 @@ public class ServerScoreboardManager {
     private static final Map<UUID, Map<String, Map<String, Integer>>> playerScoreboardCache = new ConcurrentHashMap<>();
     // プレイヤー毎の現在表示中のオブジェクティブを追跡
     private static final Map<UUID, String> playerActiveObjectives = new ConcurrentHashMap<>();
+    // スコアボード表示保持システム
+    private static final Map<UUID, Long> lastScoreboardDisplay = new ConcurrentHashMap<>();
+    private static final long SCOREBOARD_REFRESH_INTERVAL = 5000; // 5秒ごとにリフレッシュ
     public static MinecraftServer server;
     private static int tickCounter = 0;
 
@@ -43,7 +46,6 @@ public class ServerScoreboardManager {
         playerData.clear();
         customScoreboardData.clear();
         transformData.clear();
-        ServerScoreboardLogger.info("Loading scoreboard data...");
         
         // 自動変換設定を初期化
         ScoreboardAutoTransform.init(server);
@@ -63,12 +65,10 @@ public class ServerScoreboardManager {
             try {
                 NbtCompound nbt = NbtIo.readCompressed(playerDataFile);
                 loadPlayerData(nbt);
-                ServerScoreboardLogger.info("Loaded player scoreboard data for " + playerData.size() + " players");
             } catch (IOException e) {
                 ServerScoreboardLogger.error("Failed to load player scoreboard data", e);
             }
         } else {
-            ServerScoreboardLogger.info("No existing player scoreboard data found");
         }
         
         // TotalStatsManager設定の読み込み
@@ -182,9 +182,6 @@ public class ServerScoreboardManager {
 
         try {
             NbtIo.writeCompressed(nbt, playerDataFile);
-            ServerScoreboardLogger.info("Saved player scoreboard data for " + playerData.size() + " players, " +
-                customScoreboardData.size() + " custom scoreboards, " +
-                transformData.size() + " transforms");
         } catch (IOException e) {
             ServerScoreboardLogger.error("Failed to save player scoreboard data", e);
         }
@@ -220,7 +217,6 @@ public class ServerScoreboardManager {
         }
         
         data.setDisplayObjective(objectiveName);
-        ServerScoreboardLogger.info("Set display objective '" + objectiveName + "' for player " + playerId);
 
         ServerPlayerEntity player = server.getPlayerManager().getPlayer(playerId);
         if (player != null) {
@@ -302,7 +298,6 @@ public class ServerScoreboardManager {
             
             // 強制的にスコアボードを再同期
             syncScoreboardToPlayer(player, objective);
-            ServerScoreboardLogger.info("Set client-side display to show objective " + objectiveName + " for player " + player.getName().getString());
         } else {
             ServerScoreboardLogger.warn("Objective '" + objectiveName + "' not found for player " + player.getName().getString());
             sendScoreboardDisplayPacketOnly(player, null);
@@ -321,36 +316,37 @@ public class ServerScoreboardManager {
                 UUID playerId = player.getUuid();
                 String objectiveName = objective.getName();
                 
+                // 永続表示システム：常にスコアボードを表示保持
+                String currentActive = playerActiveObjectives.get(playerId);
+                boolean needsInitialization = !objectiveName.equals(currentActive);
+                
                 // プレイヤーの現在のアクティブオブジェクティブを更新
                 playerActiveObjectives.put(playerId, objectiveName);
                 
-                // 現在表示中のスコアボードをクリア（重要：古いデータの残留を防ぐ）
-                ScoreboardObjective currentObjective = server.getScoreboard().getObjectiveForSlot(1);
-                if (currentObjective != null && !currentObjective.equals(objective)) {
-                    // 一時的に表示をクリア
-                    player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardDisplayS2CPacket(1, null));
+                if (needsInitialization) {
+                    // 初回またはオブジェクト切り替え時の永続表示設定
+                    
+                    // 1. オブジェクト作成
+                    player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardObjectiveUpdateS2CPacket(objective, 0));
+                    
+                    // 2. 永続的にサイドバー表示（消えないように）
+                    player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardDisplayS2CPacket(1, objective));
+                    
+                    // 3. キャッシュをクリアして初期同期
+                    Map<String, Map<String, Integer>> playerCache = playerScoreboardCache.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>());
+                    playerCache.remove(objectiveName);
+                    
+                    // 4. 全スコアを送信（永続表示の基盤）
+                    sendMinimalScoreUpdate(player, objective, true);
                 }
                 
-                // オブジェクティブを削除して再作成（クライアントのキャッシュをクリア）
-                player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardObjectiveUpdateS2CPacket(objective, 1)); // 削除
-                player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardObjectiveUpdateS2CPacket(objective, 0)); // 作成
-                
-                // 初回は全スコアを送信（キャッシュをリセット）
-                Map<String, Map<String, Integer>> playerCache = playerScoreboardCache.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>());
-                playerCache.remove(objectiveName); // キャッシュをクリアして全体同期を強制
-                
-                // 差分スコアデータを送信
-                sendDifferentialScoreboardUpdate(player, objective);
-                
-                // スコアボードをサイドバーに表示
-                player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardDisplayS2CPacket(1, objective));
-                ServerScoreboardLogger.info("Sent display packet for objective " + objective.getName() + " to player " + player.getName().getString());
+                // 永続表示保持システム：定期的に表示を確認・維持
+                maintainPersistentDisplay(player, objective);
             } else {
                 // パケットのみでスコアボードをクリア
                 UUID playerId = player.getUuid();
                 playerActiveObjectives.remove(playerId); // アクティブオブジェクティブをクリア
                 player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardDisplayS2CPacket(1, null));
-                ServerScoreboardLogger.info("Sent clear display packet to player " + player.getName().getString());
             }
         } catch (Exception e) {
             ServerScoreboardLogger.error("Failed to send scoreboard display packet to player " + player.getName().getString(), e);
@@ -379,7 +375,6 @@ public class ServerScoreboardManager {
 
     public static void onPlayerJoin(ServerPlayerEntity player) {
         UUID playerId = player.getUuid();
-        ServerScoreboardLogger.info("Player " + player.getName().getString() + " joined, initializing scoreboard");
         
         PlayerScoreboardData data = playerData.get(playerId);
         CustomScoreboardData customData = customScoreboardData.get(playerId);
@@ -417,7 +412,6 @@ public class ServerScoreboardManager {
         // プレイヤー切断時のクリーンアップ
         UUID playerId = player.getUuid();
         String playerName = player.getName().getString();
-        ServerScoreboardLogger.info("Player " + playerName + " disconnected, cleaning up scoreboard");
         
         // プレイヤーの統計をキャッシュに保存
         if (!TotalStatsManager.isPlayerExcluded(playerName)) {
@@ -440,8 +434,25 @@ public class ServerScoreboardManager {
         // アクティブオブジェクティブ情報をクリア
         playerActiveObjectives.remove(playerId);
         
-        // レート制限情報をクリア
-        RateLimiter.clearPlayer(playerId);
+        // パケット制限を撤廃（リアルタイム更新のため）
+    }
+
+    // リアルタイム差分更新メソッド（毎tick実行）- 永続表示版
+    public static void updateClientScoreboardsDifferential(MinecraftServer server) {
+        // 全プレイヤーの表示中スコアボードに対して永続表示 + スコア差分更新
+        for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
+            UUID playerId = player.getUuid();
+            String activeObjective = playerActiveObjectives.get(playerId);
+            
+            if (activeObjective != null && !activeObjective.isEmpty()) {
+                ScoreboardObjective objective = server.getScoreboard().getObjective(activeObjective);
+                if (objective != null) {
+                    // 永続表示維持 + スコア値のみ更新
+                    maintainPersistentDisplay(player, objective);
+                    sendMinimalScoreUpdate(player, objective, false);
+                }
+            }
+        }
     }
 
     public static void updateClientScoreboards(MinecraftServer server) {
@@ -457,12 +468,16 @@ public class ServerScoreboardManager {
             }
         }
         
-        // 10ティックごとにスコアボードの変更をチェックして更新（頻度を下げてパフォーマンス向上）
-        if (tickCounter % 10 == 0) {
-            checkAndUpdateScoreboards();
+        // スコアボードの変更をチェックして更新
+        checkAndUpdateScoreboards();
+
+        // スコアボード表示保持システム（100tick = 5秒ごと）
+        if (tickCounter % 100 == 0) {
+            maintainScoreboardDisplay();
         }
 
-        if (tickCounter % 200 == 0) {
+        // 更新キューの処理頻度を上げる（10tickごと = 0.5秒ごと）
+        if (tickCounter % 10 == 0) {
             processScoreboardUpdateQueue();
         }
     }
@@ -472,7 +487,6 @@ public class ServerScoreboardManager {
             return;
         }
 
-        ServerScoreboardLogger.info("Processing scoreboard update queue for " + playersToUpdate.size() + " players");
 
         for (UUID playerId : playersToUpdate) {
             ServerPlayerEntity player = server.getPlayerManager().getPlayer(playerId);
@@ -541,11 +555,9 @@ public class ServerScoreboardManager {
             if (currentDefault != null) {
                 // サーバーのデフォルトスコアボードを強制的に再送信
                 forceServerScoreboardSync(player);
-                ServerScoreboardLogger.info("Reset player " + player.getName().getString() + " scoreboard to server default: " + currentDefault.getName());
             } else {
                 // デフォルトがない場合のみクリア
                 sendScoreboardDisplayPacket(player, null);
-                ServerScoreboardLogger.info("Reset player " + player.getName().getString() + " scoreboard (no server default)");
             }
         }
         
@@ -710,7 +722,6 @@ public class ServerScoreboardManager {
             checkAndApplyAutoTransforms(player);
         });
         
-        ServerScoreboardLogger.info("Reloaded auto-transforms for all players");
     }
 
     public static class PlayerScoreboardData {
@@ -851,14 +862,79 @@ public class ServerScoreboardManager {
         }
     }
     
+    // 永続表示保持システム（スコアボードが消えないように維持）
+    private static void maintainPersistentDisplay(ServerPlayerEntity player, ScoreboardObjective objective) {
+        // 毎回表示パケットを送信してスコアボード表示を強制維持
+        // これにより他のパケットの影響でスコアボードが消えることを防ぐ
+        player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardDisplayS2CPacket(1, objective));
+    }
+    
+    // 最小限のスコア更新（通信量最適化版）
+    private static void sendMinimalScoreUpdate(ServerPlayerEntity player, ScoreboardObjective objective, boolean forceFullSync) {
+        UUID playerId = player.getUuid();
+        String objectiveName = objective.getName();
+        
+        // プレイヤーのスコアキャッシュを取得
+        Map<String, Map<String, Integer>> playerCache = playerScoreboardCache.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>());
+        Map<String, Integer> objectiveCache = playerCache.computeIfAbsent(objectiveName, k -> new ConcurrentHashMap<>());
+        
+        // 現在のスコアを取得
+        var currentScores = server.getScoreboard().getAllPlayerScores(objective);
+        Set<String> currentPlayerNames = new HashSet<>();
+        int packetCount = 0;
+        
+        // スコア変更のみ送信（バニラと同じ動作）
+        for (var score : currentScores) {
+            String playerName = score.getPlayerName();
+            int currentValue = score.getScore();
+            currentPlayerNames.add(playerName);
+            
+            Integer cachedValue = objectiveCache.get(playerName);
+            if (forceFullSync || cachedValue == null || !cachedValue.equals(currentValue)) {
+                // スコア更新パケットのみ（表示パケットは送信しない）
+                player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardPlayerUpdateS2CPacket(
+                    net.minecraft.scoreboard.ServerScoreboard.UpdateMode.CHANGE,
+                    objectiveName,
+                    playerName,
+                    currentValue
+                ));
+                objectiveCache.put(playerName, currentValue);
+                packetCount++;
+            }
+        }
+        
+        // 削除されたスコア
+        var iterator = objectiveCache.entrySet().iterator();
+        while (iterator.hasNext()) {
+            var entry = iterator.next();
+            String playerName = entry.getKey();
+            if (!currentPlayerNames.contains(playerName)) {
+                player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardPlayerUpdateS2CPacket(
+                    net.minecraft.scoreboard.ServerScoreboard.UpdateMode.REMOVE,
+                    objectiveName,
+                    playerName,
+                    0
+                ));
+                iterator.remove();
+                packetCount++;
+            }
+        }
+        
+        // 通信量をデバッグ出力（10パケット以上の場合のみ）
+        if (packetCount >= 10) {
+            ServerScoreboardLogger.debug("Minimal update: " + packetCount + " score packets sent to " + player.getName().getString());
+        }
+    }
+    
+    // 純粋な差分更新のみ（通信量最小化版）
+    private static void sendDifferentialScoreboardUpdateOnly(ServerPlayerEntity player, ScoreboardObjective objective) {
+        // 最小限のスコア更新を実行（バニラスコアボードと同じ動作）
+        sendMinimalScoreUpdate(player, objective, false);
+    }
+    
     // 差分スコアボード更新を送信（パケット数削減）
     private static void sendDifferentialScoreboardUpdate(ServerPlayerEntity player, ScoreboardObjective objective) {
-        // レート制限チェック（DDOS対策）
-        if (!RateLimiter.canSendScoreboardPacket(player.getUuid())) {
-            ServerScoreboardLogger.warn("Rate limit exceeded for player " + player.getName().getString() + 
-                " (current packets: " + RateLimiter.getCurrentPacketCount(player.getUuid()) + ")");
-            return;
-        }
+        // パケット制限を撤廃（リアルタイム更新でスムーズな表示を実現）
         UUID playerId = player.getUuid();
         String objectiveName = objective.getName();
         
@@ -889,20 +965,15 @@ public class ServerScoreboardManager {
             
             Integer cachedScore = objectiveCache.get(playerName);
             if (cachedScore == null || !cachedScore.equals(currentScore)) {
-                // 変更があった場合のみパケットを送信（レート制限チェック付き）
-                if (RateLimiter.canSendPacket(player.getUuid())) {
-                    player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardPlayerUpdateS2CPacket(
-                        net.minecraft.scoreboard.ServerScoreboard.UpdateMode.CHANGE,
-                        objectiveName,
-                        playerName,
-                        currentScore
-                    ));
-                    objectiveCache.put(playerName, currentScore);
-                    updateCount++;
-                    ServerScoreboardLogger.debug("Updated score: " + playerName + " = " + currentScore + " (was: " + cachedScore + ")");
-                } else {
-                    ServerScoreboardLogger.debug("Skipped update due to rate limit: " + playerName);
-                }
+                // 変更があった場合のみパケットを送信（制限なし）
+                player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardPlayerUpdateS2CPacket(
+                    net.minecraft.scoreboard.ServerScoreboard.UpdateMode.CHANGE,
+                    objectiveName,
+                    playerName,
+                    currentScore
+                ));
+                objectiveCache.put(playerName, currentScore);
+                updateCount++;
             }
         }
         
@@ -910,30 +981,19 @@ public class ServerScoreboardManager {
         Set<String> cachedPlayerNames = new HashSet<>(objectiveCache.keySet());
         for (String cachedPlayerName : cachedPlayerNames) {
             if (!currentPlayerNames.contains(cachedPlayerName)) {
-                // プレイヤーが削除された場合（レート制限チェック付き）
-                if (RateLimiter.canSendPacket(player.getUuid())) {
-                    player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardPlayerUpdateS2CPacket(
-                        net.minecraft.scoreboard.ServerScoreboard.UpdateMode.REMOVE,
-                        objectiveName,
-                        cachedPlayerName,
-                        0
-                    ));
-                    objectiveCache.remove(cachedPlayerName);
-                    removeCount++;
-                    ServerScoreboardLogger.debug("Removed score: " + cachedPlayerName);
-                } else {
-                    ServerScoreboardLogger.debug("Skipped removal due to rate limit: " + cachedPlayerName);
-                }
+                // プレイヤーが削除された場合（制限なし）
+                player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardPlayerUpdateS2CPacket(
+                    net.minecraft.scoreboard.ServerScoreboard.UpdateMode.REMOVE,
+                    objectiveName,
+                    cachedPlayerName,
+                    0
+                ));
+                objectiveCache.remove(cachedPlayerName);
+                removeCount++;
             }
         }
         
-        if (updateCount > 0 || removeCount > 0) {
-            ServerScoreboardLogger.info("Sent differential update for " + objectiveName + " to " + player.getName().getString() + 
-                ": " + updateCount + " updates, " + removeCount + " removes (total scores: " + currentScores.size() + ")");
-            
-            // スコアボード表示を確実に維持（消えるのを防ぐ）
-            player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardDisplayS2CPacket(1, objective));
-        }
+        // 不要な表示パケットは削除（スコアパケットのみで十分）
     }
     
     // プレイヤーのスコアボードキャッシュをクリア
@@ -964,7 +1024,6 @@ public class ServerScoreboardManager {
                         String statId = enabledList.getString(i);
                         TotalStatsManager.enableStat(statId);
                     }
-                    ServerScoreboardLogger.info("Loaded " + enabledList.size() + " enabled statistics");
                 }
                 
                 // 除外プレイヤーを読み込み
@@ -974,14 +1033,12 @@ public class ServerScoreboardManager {
                         String playerName = excludedList.getString(i);
                         TotalStatsManager.excludePlayer(playerName);
                     }
-                    ServerScoreboardLogger.info("Loaded " + excludedList.size() + " excluded players");
                 }
                 
             } catch (IOException e) {
                 ServerScoreboardLogger.error("Failed to load total stats config", e);
             }
         } else {
-            ServerScoreboardLogger.info("No existing total stats config found");
         }
     }
     
@@ -1006,11 +1063,50 @@ public class ServerScoreboardManager {
         
         try {
             NbtIo.writeCompressed(nbt, statsConfigFile);
-            ServerScoreboardLogger.info("Saved total stats config: " + 
-                enabledList.size() + " enabled stats, " + 
-                excludedList.size() + " excluded players");
         } catch (IOException e) {
             ServerScoreboardLogger.error("Failed to save total stats config", e);
+        }
+    }
+    
+    // スコアボード表示保持システム
+    private static void maintainScoreboardDisplay() {
+        long currentTime = System.currentTimeMillis();
+        
+        for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
+            UUID playerId = player.getUuid();
+            String activeObjective = playerActiveObjectives.get(playerId);
+            
+            if (activeObjective != null && !activeObjective.isEmpty()) {
+                Long lastDisplayTime = lastScoreboardDisplay.get(playerId);
+                
+                // 表示から5秒経過したか、初回表示の場合はリフレッシュ
+                if (lastDisplayTime == null || currentTime - lastDisplayTime > SCOREBOARD_REFRESH_INTERVAL) {
+                    refreshScoreboardDisplay(player, activeObjective);
+                    lastScoreboardDisplay.put(playerId, currentTime);
+                }
+            }
+        }
+    }
+    
+    // スコアボード表示をリフレッシュ（消失防止）
+    private static void refreshScoreboardDisplay(ServerPlayerEntity player, String objectiveName) {
+        try {
+            ServerScoreboard scoreboard = server.getScoreboard();
+            ScoreboardObjective objective = scoreboard.getObjective(objectiveName);
+            
+            if (objective != null) {
+                // サイドバー表示を再送信
+                player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardDisplayS2CPacket(1, objective));
+                ServerScoreboardLogger.debug("Refreshed scoreboard display for player: " + player.getName().getString());
+            } else {
+                // オブジェクトが存在しない場合は再設定を試行
+                PlayerScoreboardData data = playerData.get(player.getUuid());
+                if (data != null && !data.getDisplayObjective().isEmpty()) {
+                    setClientDisplayObjective(player.getUuid(), data.getDisplayObjective());
+                }
+            }
+        } catch (Exception e) {
+            ServerScoreboardLogger.error("Failed to refresh scoreboard display for " + player.getName().getString(), e);
         }
     }
 }

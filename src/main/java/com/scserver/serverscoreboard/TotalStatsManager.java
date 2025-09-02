@@ -35,6 +35,10 @@ public class TotalStatsManager {
     private static final Map<String, Map<String, Integer>> lastPlayerStats = new ConcurrentHashMap<>();
     private static final Set<String> excludedPlayers = new HashSet<>();
     
+    // 遅延更新システム
+    private static final Queue<Integer> pendingUpdates = new LinkedList<>();
+    private static int currentTick = 0;
+    
     // Common statistics
     public static final Map<String, String> COMMON_STATS = new HashMap<>();
     static {
@@ -99,16 +103,6 @@ public class TotalStatsManager {
         COMMON_STATS.put("placed_anvil", "Anvils Placed");
         COMMON_STATS.put("mined_anvil", "Anvils Mined");
         
-        // 追加の移動系統計
-        COMMON_STATS.put("aviate_one_cm", "Distance by Elytra");
-        COMMON_STATS.put("boat_one_cm", "Distance by Boat");
-        COMMON_STATS.put("crouch_one_cm", "Distance Crouched");
-        COMMON_STATS.put("horse_one_cm", "Distance by Horse");
-        COMMON_STATS.put("minecart_one_cm", "Distance by Minecart");
-        COMMON_STATS.put("pig_one_cm", "Distance by Pig");
-        COMMON_STATS.put("strider_one_cm", "Distance by Strider");
-        COMMON_STATS.put("walk_on_water_one_cm", "Distance on Water");
-        COMMON_STATS.put("walk_under_water_one_cm", "Distance Under Water");
         
         // 戦闘系統計
         COMMON_STATS.put("mob_kills", "Mob Kills");
@@ -119,10 +113,6 @@ public class TotalStatsManager {
         COMMON_STATS.put("damage_dealt_absorbed", "Absorbed Damage Dealt");
         COMMON_STATS.put("damage_dealt_resisted", "Resisted Damage Dealt");
         
-        // 時間系統計
-        COMMON_STATS.put("time_since_death", "Time Since Death");
-        COMMON_STATS.put("time_since_rest", "Time Since Rest");
-        COMMON_STATS.put("sneak_time", "Sneak Time");
         
         // その他
         COMMON_STATS.put("target_hit", "Targets Hit");
@@ -144,13 +134,6 @@ public class TotalStatsManager {
         registerTotalStat("deaths", "Total Deaths", "deaths");
         registerTotalStat("damage_dealt", "Total Damage Dealt", "damage_dealt");
         registerTotalStat("damage_taken", "Total Damage Taken", "damage_taken");
-        registerTotalStat("play_time", "Total Play Time", "play_time");
-        registerTotalStat("walk_one_cm", "Total Distance Walked", "walk_one_cm");
-        registerTotalStat("sprint_one_cm", "Total Distance Sprinted", "sprint_one_cm");
-        registerTotalStat("swim_one_cm", "Total Distance Swum", "swim_one_cm");
-        registerTotalStat("fall_one_cm", "Total Distance Fallen", "fall_one_cm");
-        registerTotalStat("climb_one_cm", "Total Distance Climbed", "climb_one_cm");
-        registerTotalStat("fly_one_cm", "Total Distance Flown", "fly_one_cm");
         registerTotalStat("jump", "Total Jumps", "jump");
         registerTotalStat("drop", "Total Items Dropped", "drop");
         registerTotalStat("fish_caught", "Total Fish Caught", "fish_caught");
@@ -201,16 +184,6 @@ public class TotalStatsManager {
         registerTotalStat("mined_anvil", "Total Anvils Mined", "mined_anvil");
         registerTotalStat("anvil_used", "Total Anvils Used", "interact_with_anvil");
         
-        // 追加の移動系統計
-        registerTotalStat("aviate_one_cm", "Total Distance by Elytra", "aviate_one_cm");
-        registerTotalStat("boat_one_cm", "Total Distance by Boat", "boat_one_cm");
-        registerTotalStat("crouch_one_cm", "Total Distance Crouched", "crouch_one_cm");
-        registerTotalStat("horse_one_cm", "Total Distance by Horse", "horse_one_cm");
-        registerTotalStat("minecart_one_cm", "Total Distance by Minecart", "minecart_one_cm");
-        registerTotalStat("pig_one_cm", "Total Distance by Pig", "pig_one_cm");
-        registerTotalStat("strider_one_cm", "Total Distance by Strider", "strider_one_cm");
-        registerTotalStat("walk_on_water_one_cm", "Total Distance on Water", "walk_on_water_one_cm");
-        registerTotalStat("walk_under_water_one_cm", "Total Distance Under Water", "walk_under_water_one_cm");
         
         // 戦闘・サバイバル系統計
         registerTotalStat("mob_kills", "Total Mob Kills", "mob_kills");
@@ -231,10 +204,6 @@ public class TotalStatsManager {
         registerTotalStat("entity_killed_by", "Total Deaths by Entities", "entity_killed_by");
         registerTotalStat("target_hit", "Total Targets Hit", "target_hit");
         
-        // 時間系統計
-        registerTotalStat("time_since_death", "Time Since Last Death", "time_since_death");
-        registerTotalStat("time_since_rest", "Time Since Last Rest", "time_since_rest");
-        registerTotalStat("sneak_time", "Total Sneak Time", "sneak_time");
         
         // ブロックグループ統計
         registerTotalStat("wool_placed", "Total Wool Placed", "wool_placed");
@@ -281,14 +250,10 @@ public class TotalStatsManager {
         registerTotalStat("deepslate_ore_mined", "Total Deepslate Ores Mined", "deepslate_ore_mined");
         
         // 追加の統計タイプ
-        registerTotalStat("total_world_time", "Total World Time", "total_world_time");
         registerTotalStat("flower_potted", "Total Flowers Potted", "flower_potted");
         registerTotalStat("item_enchanted", "Total Items Enchanted", "item_enchanted");
         registerTotalStat("village_raid_hero", "Total Raid Hero Status", "village_raid_hero");
         
-        // 特定の移動統計
-        registerTotalStat("fly_with_elytra", "Total Elytra Flight Distance", "fly_with_elytra");
-        registerTotalStat("sneak_one_cm", "Total Sneak Distance", "sneak_one_cm");
         
         // デフォルトでは全て無効（必要に応じて有効化）
         // enabledStats は空のままにしておく
@@ -327,7 +292,43 @@ public class TotalStatsManager {
     public static void updateAllTotalStats() {
         if (server == null) return;
         
-        // 即座に更新する
+        // 現在のティックを更新
+        currentTick++;
+        
+        // 遅延更新の処理
+        while (!pendingUpdates.isEmpty() && pendingUpdates.peek() <= currentTick) {
+            pendingUpdates.poll(); // 期限が来た更新を削除
+            performActualUpdate();
+            break; // 1回の呼び出しで1回だけ更新
+        }
+        
+        // 通常の定期更新（変更がある場合のみ）
+        for (String statId : enabledStats) {
+            TotalStatConfig config = totalStats.get(statId);
+            if (config != null) {
+                updateTotalStat(config);
+            }
+        }
+    }
+    
+    // 遅延更新をスケジュール
+    public static void scheduleDelayedUpdate(int delayTicks) {
+        if (server == null) return;
+        pendingUpdates.offer(currentTick + delayTicks);
+    }
+    
+    // 即座更新をスケジュール（次のtickで実行）
+    public static void scheduleInstantUpdate() {
+        if (server == null) return;
+        pendingUpdates.offer(currentTick + 1);
+    }
+    
+    // 実際の強制更新処理
+    private static void performActualUpdate() {
+        // キャッシュをクリアして強制更新
+        lastPlayerStats.clear();
+        cachedTotals.clear();
+        
         for (String statId : enabledStats) {
             TotalStatConfig config = totalStats.get(statId);
             if (config != null) {
@@ -419,25 +420,7 @@ public class TotalStatsManager {
             scoreboard.resetPlayerScore(oldScore.getPlayerName(), objective);
         }
         
-        // 時間系統計の場合は特別な表示処理
-        if (config.statType.equals("play_time") || config.statType.equals("sneak_time") || 
-            config.statType.equals("time_since_death") || config.statType.equals("time_since_rest")) {
-            // プレイ時間を名前の後ろに表示、スコアは0に設定
-            for (Map.Entry<String, Integer> entry : playerStats.entrySet()) {
-                String playerName = entry.getKey();
-                int ticks = entry.getValue();
-                String timeFormatted = formatTimeShort(ticks);
-                String displayName = playerName + " §7" + timeFormatted;
-                ScoreboardPlayerScore score = scoreboard.getPlayerScore(displayName, objective);
-                score.setScore(0);
-            }
-            
-            // サーバー合計も同様に表示
-            String totalTimeFormatted = formatTimeShort(total);
-            String totalDisplayName = "  §6§l$SERVER_TOTAL §7" + totalTimeFormatted;
-            ScoreboardPlayerScore totalScore = scoreboard.getPlayerScore(totalDisplayName, objective);
-            totalScore.setScore(0);
-        } else {
+        {
             // 通常の統計表示
             ScoreboardPlayerScore totalScore = scoreboard.getPlayerScore("  §6§l$SERVER_TOTAL", objective);
             int oldTotal = totalScore.getScore();
@@ -506,21 +489,6 @@ public class TotalStatsManager {
         return totalMinutes;
     }
     
-    // 短い時間表示フォーマット（nd nh nm形式）
-    private static String formatTimeShort(int ticks) {
-        int totalSeconds = ticks / 20;
-        int days = totalSeconds / 86400;
-        int hours = (totalSeconds % 86400) / 3600;
-        int minutes = (totalSeconds % 3600) / 60;
-        
-        if (days > 0) {
-            return String.format("%dd %dh %dm", days, hours, minutes);
-        } else if (hours > 0) {
-            return String.format("%dh %dm", hours, minutes);
-        } else {
-            return String.format("%dm", minutes);
-        }
-    }
     
     public static int getPlayerStatTotal(ServerPlayerEntity player, String statType) {
         int total = 0;
@@ -590,27 +558,6 @@ public class TotalStatsManager {
             case "damage_taken":
                 total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.DAMAGE_TAKEN));
                 break;
-            case "play_time":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.PLAY_TIME));
-                break;
-            case "walk_one_cm":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.WALK_ONE_CM));
-                break;
-            case "sprint_one_cm":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.SPRINT_ONE_CM));
-                break;
-            case "swim_one_cm":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.SWIM_ONE_CM));
-                break;
-            case "fall_one_cm":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.FALL_ONE_CM));
-                break;
-            case "climb_one_cm":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.CLIMB_ONE_CM));
-                break;
-            case "fly_one_cm":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.FLY_ONE_CM));
-                break;
             case "jump":
                 total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.JUMP));
                 break;
@@ -651,6 +598,7 @@ public class TotalStatsManager {
                 total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.OPEN_SHULKER_BOX));
                 break;
             case "interact_with_anvil":
+            case "anvil_used":
                 total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.INTERACT_WITH_ANVIL));
                 break;
             case "interact_with_brewingstand":
@@ -707,34 +655,6 @@ public class TotalStatsManager {
             case "traded_with_villager":
                 total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.TRADED_WITH_VILLAGER));
                 break;
-            // 追加の移動系統計
-            case "aviate_one_cm":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.AVIATE_ONE_CM));
-                break;
-            case "boat_one_cm":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.BOAT_ONE_CM));
-                break;
-            case "crouch_one_cm":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.CROUCH_ONE_CM));
-                break;
-            case "horse_one_cm":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.HORSE_ONE_CM));
-                break;
-            case "minecart_one_cm":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.MINECART_ONE_CM));
-                break;
-            case "pig_one_cm":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.PIG_ONE_CM));
-                break;
-            case "strider_one_cm":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.STRIDER_ONE_CM));
-                break;
-            case "walk_on_water_one_cm":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.WALK_ON_WATER_ONE_CM));
-                break;
-            case "walk_under_water_one_cm":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.WALK_UNDER_WATER_ONE_CM));
-                break;
             // 戦闘系統計
             case "mob_kills":
                 total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.MOB_KILLS));
@@ -756,16 +676,6 @@ public class TotalStatsManager {
                 break;
             case "damage_dealt_resisted":
                 total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.DAMAGE_DEALT_RESISTED));
-                break;
-            // 時間系統計（特別な表示処理が必要）
-            case "time_since_death":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.TIME_SINCE_DEATH));
-                break;
-            case "time_since_rest":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.TIME_SINCE_REST));
-                break;
-            case "sneak_time":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.SNEAK_TIME));
                 break;
             // その他
             case "target_hit":
@@ -937,20 +847,11 @@ public class TotalStatsManager {
                 break;
                 
             // 追加した統計タイプの処理
-            case "total_world_time":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.TOTAL_WORLD_TIME));
-                break;
             case "flower_potted":
                 total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.POT_FLOWER));
                 break;
             case "item_enchanted":
                 total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.ENCHANT_ITEM));
-                break;
-            case "fly_with_elytra":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.AVIATE_ONE_CM));
-                break;
-            case "sneak_one_cm":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.CROUCH_ONE_CM));
                 break;
             case "craft_item":
                 // 全アイテムのクラフト数を合計
@@ -1030,8 +931,7 @@ public class TotalStatsManager {
                 }
                 break;
             case "village_raid_hero":
-                // レイドヒーロー状態は特殊な統計ではないため、0を返す
-                total = 0;
+                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.RAID_WIN));
                 break;
                 
             // その他の統計も必要に応じて追加可能

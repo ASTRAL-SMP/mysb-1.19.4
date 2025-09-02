@@ -14,35 +14,24 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.*;
-import java.net.http.WebSocket;
-import java.nio.ByteBuffer;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.zip.Inflater;
-import java.util.zip.DataFormatException;
-import java.util.function.Consumer;
 
-public class SimpleDiscordBot implements WebSocket.Listener {
+/**
+ * 軽量版Discord Bot
+ * WebSocket接続、スラッシュコマンドを削除し、HTTP APIのみを使用
+ * フォーラム投稿、メッセージ編集機能は維持
+ */
+public class SimpleDiscordBot {
     private static SimpleDiscordBot instance;
     private final HttpClient httpClient = HttpClient.newBuilder().build();
-    private ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(3);
+    private ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
     private final Map<String, ForumThreadInfo> forumThreads = new ConcurrentHashMap<>();
     private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
-    private final AtomicInteger sequence = new AtomicInteger(0);
-    private final ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-    private final Inflater inflater = new Inflater();
     
     private String botToken;
-    private String applicationId;
     private String forumChannelId;
     private MinecraftServer server;
     private volatile boolean isRunning = false;
-    private volatile WebSocket webSocket;
-    private String sessionId;
-    private ScheduledFuture<?> heartbeatTask;
-    private final AtomicBoolean isReconnecting = new AtomicBoolean(false);
-    private final AtomicLong reconnectDelay = new AtomicLong(5000); // Start with 5 seconds
+    private ScheduledFuture<?> updateTask;
     
     private SimpleDiscordBot() {}
     
@@ -53,76 +42,71 @@ public class SimpleDiscordBot implements WebSocket.Listener {
         return instance;
     }
     
-    public void initialize(MinecraftServer server) {
-        this.server = server;
+    public void start(MinecraftServer minecraftServer) {
+        this.server = minecraftServer;
+        loadConfig();
         
-        // schedulerが未作成またはシャットダウンされている場合は新規作成
-        if (scheduler == null || scheduler.isShutdown()) {
-            scheduler = Executors.newScheduledThreadPool(3);
-        }
-        
-        // 設定からトークンを読み込む
-        loadBotToken();
         if (botToken == null || botToken.isEmpty()) {
-            ServerScoreboardLogger.error("Discord bot token not found in config");
+            ServerScoreboardLogger.info("Discord Bot token not configured - Discord features disabled");
             return;
         }
         
-        // Bot情報を取得
-        fetchBotInfo();
+        isRunning = true;
+        ServerScoreboardLogger.info("Lightweight Discord Bot started");
         
-        // 設定を読み込む
-        loadConfig();
-        
-        // スラッシュコマンドを登録
-        registerSlashCommands();
-        
-        // Gateway WebSocketに接続
-        connectToGateway();
-        
-        // 定期更新をスケジュール
-        scheduleDaily5AM();
-        
-        // Gateway接続が完了するまで少し待つ
-        scheduler.schedule(() -> {
-            isRunning = true;
-            ServerScoreboardLogger.info("Discord Bot initialization complete");
-        }, 3, TimeUnit.SECONDS);
+        // 1時間ごとの定期更新を開始
+        scheduleHourlyUpdates();
     }
     
-    private void fetchBotInfo() {
-        try {
-            HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create("https://discord.com/api/v10/users/@me"))
-                .header("Authorization", "Bot " + botToken)
-                .GET()
-                .build();
-            
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() == 200) {
-                JsonObject botInfo = JsonParser.parseString(response.body()).getAsJsonObject();
-                applicationId = botInfo.get("id").getAsString();
-                ServerScoreboardLogger.info("Bot connected as: " + botInfo.get("username").getAsString() + " (ID: " + applicationId + ")");
-            } else {
-                ServerScoreboardLogger.error("Failed to fetch bot info. Status code: " + response.statusCode() + ", Response: " + response.body());
-            }
-        } catch (Exception e) {
-            ServerScoreboardLogger.error("Failed to fetch bot info: " + e.getMessage());
-            e.printStackTrace();
+    public void stop() {
+        if (updateTask != null) {
+            updateTask.cancel(false);
         }
+        if (scheduler != null && !scheduler.isShutdown()) {
+            scheduler.shutdown();
+            try {
+                if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                    scheduler.shutdownNow();
+                    ServerScoreboardLogger.warn("Discord Bot scheduler forced shutdown");
+                }
+            } catch (InterruptedException e) {
+                scheduler.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+        }
+        isRunning = false;
+        ServerScoreboardLogger.info("Lightweight Discord Bot stopped");
     }
     
-    public void setForumChannel(String channelId) {
-        this.forumChannelId = channelId;
-        saveConfig();
+    public void reload(MinecraftServer minecraftServer) {
+        ServerScoreboardLogger.info("Reloading Lightweight Discord Bot...");
+        stop();
+        start(minecraftServer);
+    }
+    
+    private void scheduleHourlyUpdates() {
+        // 毎時0分に実行（1時間間隔）
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime nextHour = now.plusHours(1).withMinute(0).withSecond(0).withNano(0);
+        long initialDelay = java.time.Duration.between(now, nextHour).toMillis();
+        
+        updateTask = scheduler.scheduleAtFixedRate(() -> {
+            try {
+                updateAllScoreboards();
+            } catch (Exception e) {
+                ServerScoreboardLogger.error("Error during hourly Discord update", e);
+            }
+        }, initialDelay, TimeUnit.HOURS.toMillis(1), TimeUnit.MILLISECONDS);
+        
+        ServerScoreboardLogger.info("Scheduled hourly Discord updates (next update: " + 
+            nextHour.format(DateTimeFormatter.ofPattern("HH:mm")) + ")");
     }
     
     public void addScoreboard(String objectiveName) {
-        if (forumChannelId == null) {
+        if (forumChannelId == null || forumChannelId.isEmpty()) {
             throw new IllegalStateException("フォーラムチャンネルが設定されていません");
         }
         
-        // フォーラムにスレッドを作成
         createForumThread(objectiveName);
     }
     
@@ -138,7 +122,7 @@ public class SimpleDiscordBot implements WebSocket.Listener {
             
             // 初期メッセージ
             JsonObject message = new JsonObject();
-            message.addProperty("content", "このスレッドには毎朝5時に統計データが更新されます。");
+            message.addProperty("content", "このスレッドには毎時統計データが更新されます。");
             payload.add("message", message);
             
             HttpRequest request = HttpRequest.newBuilder()
@@ -157,8 +141,13 @@ public class SimpleDiscordBot implements WebSocket.Listener {
                 forumThreads.put(objectiveName, info);
                 saveConfig();
                 
+                ServerScoreboardLogger.info("Created forum thread for: " + objectiveName);
+                
                 // 初回の統計を投稿
                 updateScoreboardData(objectiveName);
+            } else {
+                ServerScoreboardLogger.error("Failed to create forum thread. Status: " + response.statusCode() + 
+                    ", Body: " + response.body());
             }
         } catch (Exception e) {
             ServerScoreboardLogger.error("Failed to create forum thread: " + e.getMessage());
@@ -167,542 +156,167 @@ public class SimpleDiscordBot implements WebSocket.Listener {
     
     public void updateScoreboardData(String objectiveName) {
         ForumThreadInfo info = forumThreads.get(objectiveName);
-        if (info == null || server == null) return;
-        
-        server.execute(() -> {
-            ScoreboardObjective objective = server.getScoreboard().getObjective(objectiveName);
-            if (objective == null) return;
-            
-            String data = getFormattedScoreboardDataForDiscord(objective);
-            if (data.isEmpty()) {
-                ServerScoreboardLogger.info("No data to display for objective: " + objectiveName);
-                return;
-            }
-            
-            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss"));
-            
-            // 表示名を取得（色コードを除去）
-            String displayName = TotalStatsManager.getTotalDisplayName(objectiveName);
-            if (displayName == null) {
-                displayName = objective.getDisplayName().getString();
-            }
-            displayName = displayName.replaceAll("§[0-9a-fklmnor]", "");
-            
-            JsonObject embed = new JsonObject();
-            embed.addProperty("title", "【" + displayName + "】");
-            embed.addProperty("description", data);
-            embed.addProperty("color", 0x5865F2);
-            
-            JsonObject footer = new JsonObject();
-            footer.addProperty("text", "最終更新: " + timestamp);
-            embed.add("footer", footer);
-            
-            JsonArray embeds = new JsonArray();
-            embeds.add(embed);
-            
-            JsonObject payload = new JsonObject();
-            payload.add("embeds", embeds);
-            
-            if (info.lastMessageId == null) {
-                // 新規投稿
-                sendMessage(info.threadId, payload.toString(), messageId -> {
-                    info.lastMessageId = messageId;
-                    saveConfig();
-                });
-            } else {
-                // 既存メッセージを編集
-                editMessage(info.threadId, info.lastMessageId, payload.toString());
-            }
-        });
-    }
-    
-    private void sendMessage(String channelId, String payload, Consumer<String> onSuccess) {
-        try {
-            HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create("https://discord.com/api/v10/channels/" + channelId + "/messages"))
-                .header("Authorization", "Bot " + botToken)
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(payload))
-                .build();
-            
-            httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                .thenAccept(response -> {
-                    if (response.statusCode() == 200) {
-                        JsonObject message = JsonParser.parseString(response.body()).getAsJsonObject();
-                        String messageId = message.get("id").getAsString();
-                        onSuccess.accept(messageId);
-                    }
-                });
-        } catch (Exception e) {
-            ServerScoreboardLogger.error("Failed to send message: " + e.getMessage());
-        }
-    }
-    
-    private void editMessage(String channelId, String messageId, String payload) {
-        try {
-            HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create("https://discord.com/api/v10/channels/" + channelId + "/messages/" + messageId))
-                .header("Authorization", "Bot " + botToken)
-                .header("Content-Type", "application/json")
-                .method("PATCH", HttpRequest.BodyPublishers.ofString(payload))
-                .build();
-            
-            httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString());
-        } catch (Exception e) {
-            ServerScoreboardLogger.error("Failed to edit message: " + e.getMessage());
-        }
-    }
-    
-    private void scheduleDaily5AM() {
-        Calendar calendar = Calendar.getInstance();
-        calendar.set(Calendar.HOUR_OF_DAY, 5);
-        calendar.set(Calendar.MINUTE, 0);
-        calendar.set(Calendar.SECOND, 0);
-        
-        if (calendar.getTimeInMillis() < System.currentTimeMillis()) {
-            calendar.add(Calendar.DAY_OF_MONTH, 1);
-        }
-        
-        long initialDelay = calendar.getTimeInMillis() - System.currentTimeMillis();
-        
-        scheduler.scheduleAtFixedRate(() -> {
-            for (String objectiveName : forumThreads.keySet()) {
-                updateScoreboardData(objectiveName);
-            }
-        }, initialDelay, TimeUnit.DAYS.toMillis(1), TimeUnit.MILLISECONDS);
-    }
-    
-    private void loadBotToken() {
-        try {
-            File configDir = new File("config/serverscoreboard");
-            if (!configDir.exists()) {
-                configDir.mkdirs();
-            }
-            
-            File file = new File(configDir, "discord_bot.json");
-            if (!file.exists()) {
-                // デフォルトの設定ファイルを作成
-                JsonObject defaultConfig = new JsonObject();
-                defaultConfig.addProperty("token", "YOUR_DISCORD_BOT_TOKEN_HERE");
-                
-                try (FileWriter writer = new FileWriter(file)) {
-                    gson.toJson(defaultConfig, writer);
-                }
-                
-                ServerScoreboardLogger.info("Created default Discord bot config file at: " + file.getAbsolutePath());
-                ServerScoreboardLogger.info("Please set your Discord bot token in: config/serverscoreboard/discord_bot.json");
-                return;
-            }
-            
-            try (FileReader reader = new FileReader(file)) {
-                JsonObject config = gson.fromJson(reader, JsonObject.class);
-                if (config.has("token")) {
-                    botToken = config.get("token").getAsString();
-                    if (botToken.equals("YOUR_DISCORD_BOT_TOKEN_HERE")) {
-                        ServerScoreboardLogger.warn("Discord bot token is not configured. Please set your token in: config/serverscoreboard/discord_bot.json");
-                        botToken = null;
-                    }
-                }
-            }
-        } catch (Exception e) {
-            ServerScoreboardLogger.error("Failed to load bot token: " + e.getMessage());
-        }
-    }
-    
-    private void connectToGateway() {
-        if (webSocket != null && !webSocket.isOutputClosed()) {
-            ServerScoreboardLogger.info("WebSocket connection already established.");
+        if (info == null) {
+            ServerScoreboardLogger.warn("Forum thread not found for objective: " + objectiveName);
             return;
         }
         
         try {
+            String scoreboardData = generateScoreboardData(objectiveName);
+            if (scoreboardData == null) {
+                return;
+            }
+            
+            if (info.lastMessageId != null) {
+                // メッセージを編集（通知なし）
+                editMessage(info.threadId, info.lastMessageId, scoreboardData);
+            } else {
+                // 新規メッセージを投稿
+                String messageId = sendMessage(info.threadId, scoreboardData);
+                if (messageId != null) {
+                    info.lastMessageId = messageId;
+                    saveConfig();
+                }
+            }
+            
+        } catch (Exception e) {
+            ServerScoreboardLogger.error("Failed to update scoreboard data for " + objectiveName, e);
+        }
+    }
+    
+    private String sendMessage(String channelId, String content) {
+        try {
+            JsonObject payload = new JsonObject();
+            payload.addProperty("content", content);
+            
             HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create("https://discord.com/api/v10/gateway/bot"))
+                .uri(URI.create("https://discord.com/api/v10/channels/" + channelId + "/messages"))
                 .header("Authorization", "Bot " + botToken)
-                .GET()
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(payload.toString()))
                 .build();
             
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 200) {
-                JsonObject gateway = JsonParser.parseString(response.body()).getAsJsonObject();
-                String wsUrl = gateway.get("url").getAsString() + "?v=10&encoding=json";
-                
-                httpClient.newWebSocketBuilder()
-                    .buildAsync(URI.create(wsUrl), this)
-                    .thenAccept(ws -> {
-                        this.webSocket = ws;
-                        ServerScoreboardLogger.info("WebSocket connection established");
-                        isReconnecting.set(false);
-                        reconnectDelay.set(5000); // Reset reconnect delay on successful connection
-                    })
-                    .exceptionally(ex -> {
-                        ServerScoreboardLogger.error("Failed to establish WebSocket connection: " + ex.getMessage());
-                        scheduleReconnect();
-                        return null;
-                    });
-            } else {
-                 ServerScoreboardLogger.error("Failed to get gateway URL: " + response.body());
-                 scheduleReconnect();
+                JsonObject responseJson = JsonParser.parseString(response.body()).getAsJsonObject();
+                return responseJson.get("id").getAsString();
             }
+            
         } catch (Exception e) {
-            ServerScoreboardLogger.error("Failed to connect to Discord Gateway: " + e.getMessage());
-            scheduleReconnect();
+            ServerScoreboardLogger.error("Failed to send message", e);
         }
+        return null;
     }
     
-    private void registerSlashCommands() {
+    private void editMessage(String channelId, String messageId, String newContent) {
         try {
-            JsonArray commands = new JsonArray();
-            
-            // /scoreboard コマンド
-            JsonObject scoreboardCmd = new JsonObject();
-            scoreboardCmd.addProperty("name", "scoreboard");
-            scoreboardCmd.addProperty("description", "スコアボードのデータを取得");
-            JsonArray options = new JsonArray();
-            JsonObject option = new JsonObject();
-            option.addProperty("name", "objective");
-            option.addProperty("description", "スコアボード名");
-            option.addProperty("type", 3); // STRING
-            option.addProperty("required", true);
-            option.addProperty("autocomplete", true);
-            options.add(option);
-            scoreboardCmd.add("options", options);
-            commands.add(scoreboardCmd);
-            
-            // /scoreboard-setchannel コマンド
-            JsonObject setChannelCmd = new JsonObject();
-            setChannelCmd.addProperty("name", "scoreboard-setchannel");
-            setChannelCmd.addProperty("description", "フォーラムチャンネルを設定");
-            JsonArray channelOptions = new JsonArray();
-            JsonObject channelOption = new JsonObject();
-            channelOption.addProperty("name", "channel");
-            channelOption.addProperty("description", "フォーラムチャンネル");
-            channelOption.addProperty("type", 7); // CHANNEL
-            channelOption.addProperty("required", true);
-            channelOptions.add(channelOption);
-            setChannelCmd.add("options", channelOptions);
-            commands.add(setChannelCmd);
+            JsonObject payload = new JsonObject();
+            payload.addProperty("content", newContent);
             
             HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create("https://discord.com/api/v10/applications/" + applicationId + "/commands"))
+                .uri(URI.create("https://discord.com/api/v10/channels/" + channelId + "/messages/" + messageId))
                 .header("Authorization", "Bot " + botToken)
                 .header("Content-Type", "application/json")
-                .PUT(HttpRequest.BodyPublishers.ofString(commands.toString()))
+                .method("PATCH", HttpRequest.BodyPublishers.ofString(payload.toString()))
                 .build();
             
-            httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                ServerScoreboardLogger.error("Failed to edit message. Status: " + response.statusCode());
+            }
+            
         } catch (Exception e) {
-            ServerScoreboardLogger.error("Failed to register slash commands: " + e.getMessage());
+            ServerScoreboardLogger.error("Failed to edit message", e);
         }
     }
     
-    // WebSocket callbacks
-    @Override
-    public void onOpen(WebSocket webSocket) {
-        ServerScoreboardLogger.info("Connected to Discord Gateway");
-        this.webSocket = webSocket;  // WebSocketインスタンスを保存
-        webSocket.request(1);
-    }
-    
-    @Override
-    public CompletionStage<?> onText(WebSocket webSocket, CharSequence data, boolean last) {
-        try {
-            String message = data.toString();
-            handleGatewayMessage(message);
-        } catch (Exception e) {
-            ServerScoreboardLogger.error("Error handling Gateway message: " + e.getMessage());
+    private String generateScoreboardData(String objectiveName) {
+        if (server == null) {
+            return null;
         }
-        webSocket.request(1);
-        return null;
-    }
-    
-    @Override
-    public void onError(WebSocket webSocket, Throwable error) {
-        ServerScoreboardLogger.error("WebSocket error: " + error.getMessage());
-        scheduleReconnect();
-    }
-
-    @Override
-    public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
-        ServerScoreboardLogger.warn("WebSocket closed with code " + statusCode + " and reason: " + reason);
-        scheduleReconnect();
-        return null;
-    }
-    
-    private void handleGatewayMessage(String message) {
-        JsonObject payload = JsonParser.parseString(message).getAsJsonObject();
-        int op = payload.get("op").getAsInt();
         
-        if (payload.has("s") && !payload.get("s").isJsonNull()) {
-            sequence.set(payload.get("s").getAsInt());
+        ScoreboardObjective objective = server.getScoreboard().getObjective(objectiveName);
+        if (objective == null) {
+            ServerScoreboardLogger.warn("Objective not found: " + objectiveName);
+            return null;
         }
-
-        switch (op) {
-            case 0: // Dispatch
-                handleDispatch(payload);
-                break;
-            case 7: // Reconnect
-                ServerScoreboardLogger.info("Received Reconnect from Discord. Reconnecting...");
-                reconnect();
-                break;
-            case 9: // Invalid Session
-                ServerScoreboardLogger.warn("Invalid session. Re-identifying...");
-                sessionId = null; // Force re-identify
-                sequence.set(0);
-                reconnect();
-                break;
-            case 10: // Hello
-                handleHello(payload);
-                break;
-            case 11: // Heartbeat ACK
-                break;
-        }
-    }
-    
-    private void handleHello(JsonObject payload) {
-        JsonObject d = payload.getAsJsonObject("d");
-        int heartbeatInterval = d.get("heartbeat_interval").getAsInt();
         
-        if (heartbeatTask != null) {
-            heartbeatTask.cancel(true);
-        }
-        startHeartbeat(heartbeatInterval);
+        StringBuilder content = new StringBuilder();
+        content.append("**").append(objective.getDisplayName().getString()).append("**\n");
+        content.append("更新時刻: ").append(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm"))).append("\n\n");
         
-        if (sessionId == null) {
-            sendIdentify();
-        } else {
-            sendResume();
-        }
-    }
-    
-    private void startHeartbeat(int interval) {
-        heartbeatTask = scheduler.scheduleAtFixedRate(() -> {
-            if (webSocket != null && !webSocket.isOutputClosed()) {
-                try {
-                    JsonObject heartbeat = new JsonObject();
-                    heartbeat.addProperty("op", 1);
-                    heartbeat.add("d", sequence.get() == 0 ? JsonNull.INSTANCE : new JsonPrimitive(sequence.get()));
-                    webSocket.sendText(heartbeat.toString(), true);
-                } catch (Exception e) {
-                    ServerScoreboardLogger.error("Failed to send heartbeat: " + e.getMessage());
-                    scheduleReconnect();
-                }
+        // スコアを取得してソート
+        Collection<ScoreboardPlayerScore> scores = server.getScoreboard().getAllPlayerScores(objective);
+        List<ScoreboardPlayerScore> sortedScores = new ArrayList<>(scores);
+        sortedScores.sort((a, b) -> Integer.compare(b.getScore(), a.getScore()));
+        
+        // 上位20位まで表示
+        int count = 0;
+        content.append("```\n");
+        for (ScoreboardPlayerScore score : sortedScores) {
+            if (count >= 20) break;
+            if (score.getScore() > 0) {
+                content.append(String.format("%-20s %,d\n", score.getPlayerName(), score.getScore()));
+                count++;
             }
-        }, 0, interval, TimeUnit.MILLISECONDS);
+        }
+        content.append("```");
+        
+        return content.toString();
     }
     
-    private void sendIdentify() {
-        if (webSocket != null) {
-            JsonObject identify = new JsonObject();
-            identify.addProperty("op", 2);
+    private void updateAllScoreboards() {
+        if (!isRunning || forumThreads.isEmpty()) {
+            return;
+        }
+        
+        ServerScoreboardLogger.info("Starting hourly Discord scoreboard updates...");
+        
+        for (String objectiveName : forumThreads.keySet()) {
+            updateScoreboardData(objectiveName);
             
-            JsonObject d = new JsonObject();
-            d.addProperty("token", botToken);
-            d.addProperty("intents", 1 << 0 | 1 << 9); // GUILDS | GUILD_MESSAGES
-            
-            JsonObject properties = new JsonObject();
-            properties.addProperty("os", "linux");
-            properties.addProperty("browser", "mysb");
-            properties.addProperty("device", "mysb");
-            d.add("properties", properties);
-            
-            identify.add("d", d);
-            webSocket.sendText(identify.toString(), true);
-        }
-    }
-    
-    private void handleDispatch(JsonObject payload) {
-        String t = payload.get("t").getAsString();
-        JsonObject d = payload.getAsJsonObject("d");
-        
-        switch (t) {
-            case "READY":
-                sessionId = d.get("session_id").getAsString();
-                ServerScoreboardLogger.info("Discord Bot ready - Session ID: " + sessionId);
-                if (d.has("user")) {
-                    JsonObject user = d.getAsJsonObject("user");
-                    applicationId = user.get("id").getAsString();
-                    ServerScoreboardLogger.info("Bot ID confirmed: " + applicationId);
-                }
+            // レート制限対策で少し待機
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
                 break;
-            case "RESUMED":
-                ServerScoreboardLogger.info("Successfully resumed session.");
-                break;
-            case "INTERACTION_CREATE":
-                handleInteraction(d);
-                break;
-        }
-    }
-    
-    private void handleInteraction(JsonObject interaction) {
-        int type = interaction.get("type").getAsInt();
-        
-        if (type == 2) { // APPLICATION_COMMAND
-            handleSlashCommand(interaction);
-        } else if (type == 4) { // APPLICATION_COMMAND_AUTOCOMPLETE
-            handleAutocomplete(interaction);
-        }
-    }
-    
-    private void handleSlashCommand(JsonObject interaction) {
-        String commandName = interaction.getAsJsonObject("data").get("name").getAsString();
-        
-        switch (commandName) {
-            case "scoreboard":
-                handleScoreboardCommand(interaction);
-                break;
-            case "scoreboard-setchannel":
-                handleSetChannelCommand(interaction);
-                break;
-        }
-    }
-    
-    private void handleScoreboardCommand(JsonObject interaction) {
-        JsonObject data = interaction.getAsJsonObject("data");
-        String objectiveName = data.getAsJsonArray("options").get(0).getAsJsonObject().get("value").getAsString();
-        
-        // Minecraftサーバーでスコアボードデータを取得
-        server.execute(() -> {
-            ScoreboardObjective objective = server.getScoreboard().getObjective(objectiveName);
-            if (objective == null) {
-                sendInteractionResponse(interaction, "指定されたスコアボードが見つかりません: " + objectiveName, true);
-                return;
             }
-            
-            ForumThreadInfo threadInfo = forumThreads.get(objectiveName);
-            if (threadInfo != null && forumChannelId != null) {
-                // フォーラムスレッドへのリンクを返す
-                String response = "スコアボードのデータはこちらで確認できます: <#" + threadInfo.threadId + ">";
-                sendInteractionResponse(interaction, response, true);
-                
-                // データを更新
-                updateScoreboardData(objectiveName);
-            } else {
-                // 直接データを返す
-                String scoreboardData = getFormattedScoreboardDataForDiscord(objective);
-                if (scoreboardData.isEmpty()) {
-                    sendInteractionResponse(interaction, "表示するデータがありません。", true);
-                    return;
-                }
-                
-                String displayName = TotalStatsManager.getTotalDisplayName(objectiveName);
-                if (displayName == null) {
-                    displayName = objective.getDisplayName().getString();
-                }
-                // 色コードを除去
-                displayName = displayName.replaceAll("§[0-9a-fklmnor]", "");
-                
-                JsonObject embed = new JsonObject();
-                embed.addProperty("title", "【" + displayName + "】");
-                embed.addProperty("description", scoreboardData);
-                embed.addProperty("color", 0x5865F2);
-                
-                sendInteractionResponseWithEmbed(interaction, embed, true);
-            }
-        });
-    }
-    
-    private void handleSetChannelCommand(JsonObject interaction) {
-        JsonObject data = interaction.getAsJsonObject("data");
-        String channelId = data.getAsJsonArray("options").get(0).getAsJsonObject().get("value").getAsString();
-        
-        setForumChannel(channelId);
-        sendInteractionResponse(interaction, "フォーラムチャンネルを設定しました: <#" + channelId + ">", false);
-    }
-    
-    private void handleAutocomplete(JsonObject interaction) {
-        JsonObject data = interaction.getAsJsonObject("data");
-        String commandName = data.get("name").getAsString();
-        
-        if (commandName.equals("scoreboard")) {
-            JsonArray choices = new JsonArray();
-            
-            // Minecraftのスコアボードを取得
-            if (server != null) {
-                Collection<ScoreboardObjective> objectives = server.getScoreboard().getObjectives();
-                String focused = data.getAsJsonArray("options").get(0).getAsJsonObject().get("value").getAsString().toLowerCase();
-                
-                objectives.stream()
-                    .filter(obj -> obj.getName().toLowerCase().contains(focused))
-                    .limit(25)
-                    .forEach(obj -> {
-                        JsonObject choice = new JsonObject();
-                        choice.addProperty("name", obj.getDisplayName().getString() + " (" + obj.getName() + ")");
-                        choice.addProperty("value", obj.getName());
-                        choices.add(choice);
-                    });
-            }
-            
-            sendAutocompleteResponse(interaction, choices);
         }
+        
+        ServerScoreboardLogger.info("Completed hourly Discord scoreboard updates");
     }
     
-    private void sendInteractionResponse(JsonObject interaction, String content, boolean ephemeral) {
-        JsonObject response = new JsonObject();
-        response.addProperty("type", 4); // CHANNEL_MESSAGE_WITH_SOURCE
-        
-        JsonObject data = new JsonObject();
-        data.addProperty("content", content);
-        if (ephemeral) {
-            data.addProperty("flags", 64); // EPHEMERAL
-        }
-        response.add("data", data);
-        
-        sendInteractionCallback(interaction, response);
+    public void setForumChannel(String channelId) {
+        this.forumChannelId = channelId;
+        saveConfig();
+        ServerScoreboardLogger.info("Forum channel set to: " + channelId);
     }
     
-    private void sendInteractionResponseWithEmbed(JsonObject interaction, JsonObject embed, boolean ephemeral) {
-        JsonObject response = new JsonObject();
-        response.addProperty("type", 4); // CHANNEL_MESSAGE_WITH_SOURCE
-        
-        JsonObject data = new JsonObject();
-        JsonArray embeds = new JsonArray();
-        embeds.add(embed);
-        data.add("embeds", embeds);
-        if (ephemeral) {
-            data.addProperty("flags", 64); // EPHEMERAL
-        }
-        response.add("data", data);
-        
-        sendInteractionCallback(interaction, response);
+    public String getForumChannelId() {
+        return forumChannelId;
     }
     
-    private void sendAutocompleteResponse(JsonObject interaction, JsonArray choices) {
-        JsonObject response = new JsonObject();
-        response.addProperty("type", 8); // APPLICATION_COMMAND_AUTOCOMPLETE_RESULT
-        
-        JsonObject data = new JsonObject();
-        data.add("choices", choices);
-        response.add("data", data);
-        
-        sendInteractionCallback(interaction, response);
+    public Map<String, ForumThreadInfo> getForumThreads() {
+        return new HashMap<>(forumThreads);
     }
     
-    private void sendInteractionCallback(JsonObject interaction, JsonObject response) {
-        String interactionId = interaction.get("id").getAsString();
-        String interactionToken = interaction.get("token").getAsString();
-        
-        try {
-            HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create("https://discord.com/api/v10/interactions/" + interactionId + "/" + interactionToken + "/callback"))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(response.toString()))
-                .build();
-            
-            httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString());
-        } catch (Exception e) {
-            ServerScoreboardLogger.error("Failed to send interaction response: " + e.getMessage());
-        }
+    public boolean isRunning() {
+        return isRunning && botToken != null && !botToken.isEmpty();
     }
     
     private void saveConfig() {
         try {
-            File configDir = new File("config/serverscoreboard");
-            if (!configDir.exists()) configDir.mkdirs();
+            File dir = new File("config/serverscoreboard");
+            if (!dir.exists()) {
+                dir.mkdirs();
+            }
             
-            File file = new File(configDir, "discord_bot_config.json");
+            File file = new File(dir, "discord_bot_config.json");
             JsonObject root = new JsonObject();
-            root.addProperty("forumChannelId", forumChannelId);
+            
+            root.addProperty("botToken", botToken != null ? botToken : "");
+            root.addProperty("forumChannelId", forumChannelId != null ? forumChannelId : "");
             
             JsonArray threads = new JsonArray();
             for (Map.Entry<String, ForumThreadInfo> entry : forumThreads.entrySet()) {
@@ -727,11 +341,17 @@ public class SimpleDiscordBot implements WebSocket.Listener {
     private void loadConfig() {
         try {
             File file = new File("config/serverscoreboard/discord_bot_config.json");
-            if (!file.exists()) return;
+            if (!file.exists()) {
+                loadLegacyConfig(); // 既存の設定ファイルから読み込み
+                return;
+            }
             
             try (FileReader reader = new FileReader(file)) {
-                JsonObject root = gson.fromJson(reader, JsonObject.class);
+                JsonObject root = JsonParser.parseReader(reader).getAsJsonObject();
                 
+                if (root.has("botToken")) {
+                    botToken = root.get("botToken").getAsString();
+                }
                 if (root.has("forumChannelId")) {
                     forumChannelId = root.get("forumChannelId").getAsString();
                 }
@@ -745,8 +365,8 @@ public class SimpleDiscordBot implements WebSocket.Listener {
                         String lastMessageId = thread.has("lastMessageId") ? 
                             thread.get("lastMessageId").getAsString() : null;
                         
-                        forumThreads.put(objectiveName, 
-                            new ForumThreadInfo(objectiveName, threadId, lastMessageId));
+                        ForumThreadInfo info = new ForumThreadInfo(objectiveName, threadId, lastMessageId);
+                        forumThreads.put(objectiveName, info);
                     }
                 }
             }
@@ -755,185 +375,20 @@ public class SimpleDiscordBot implements WebSocket.Listener {
         }
     }
     
-    public Map<String, ForumThreadInfo> getForumThreads() {
-        return new HashMap<>(forumThreads);
-    }
-    
-    public String getForumChannelId() {
-        return forumChannelId;
-    }
-    
-    public boolean isRunning() {
-        return isRunning;
-    }
-    
-    public void shutdown() {
-        isRunning = false;
-        isReconnecting.set(false);
-        
-        if (heartbeatTask != null) {
-            heartbeatTask.cancel(true);
-            heartbeatTask = null;
-        }
-        
-        if (webSocket != null) {
-            try {
-                webSocket.sendClose(WebSocket.NORMAL_CLOSURE, "Shutting down").join();
-            } catch (Exception e) {
-                // Ignore
-            }
-            webSocket = null;
-        }
-        
-        if (scheduler != null && !scheduler.isShutdown()) {
-            scheduler.shutdown();
-            try {
-                if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
-                    scheduler.shutdownNow();
-                }
-            } catch (InterruptedException e) {
-                scheduler.shutdownNow();
-                Thread.currentThread().interrupt();
-            }
-        }
-    }
-    
-    public void reload(MinecraftServer server) {
-        shutdown();
-        scheduler = Executors.newScheduledThreadPool(3);
-        scheduler.schedule(() -> initialize(server), 1, TimeUnit.SECONDS);
-    }
-    
-    private void reconnect() {
-        if (webSocket != null) {
-            try {
-                webSocket.sendClose(WebSocket.NORMAL_CLOSURE, "Reconnecting").join();
-            } catch (Exception e) {
-                // Ignore
-            }
-            webSocket = null;
-        }
-        if (heartbeatTask != null) {
-            heartbeatTask.cancel(true);
-        }
-        scheduleReconnect();
-    }
-
-    private void scheduleReconnect() {
-        if (!isReconnecting.compareAndSet(false, true)) {
-            return;
-        }
-        
-        long delay = reconnectDelay.get();
-        ServerScoreboardLogger.info("Scheduling reconnect in " + delay + "ms");
-
-        scheduler.schedule(() -> {
-            ServerScoreboardLogger.info("Attempting to reconnect...");
-            isReconnecting.set(false);
-            connectToGateway();
-        }, delay, TimeUnit.MILLISECONDS);
-
-        // Exponential backoff
-        reconnectDelay.set(Math.min(delay * 2, 300000)); // Max 5 minutes
-    }
-
-    private void sendResume() {
-        if (webSocket != null) {
-            JsonObject resume = new JsonObject();
-            resume.addProperty("op", 6);
-
-            JsonObject d = new JsonObject();
-            d.addProperty("token", botToken);
-            d.addProperty("session_id", sessionId);
-            d.addProperty("seq", sequence.get());
-            resume.add("d", d);
-
-            webSocket.sendText(resume.toString(), true);
-            ServerScoreboardLogger.info("Sent resume request.");
-        }
-    }
-
-    private String getFormattedScoreboardDataForDiscord(ScoreboardObjective objective) {
-        if (server == null) return "";
-        
-        // スコアボードのエントリを収集
-        Map<String, Integer> scores = new LinkedHashMap<>();
-        int serverTotal = 0;
-        
-        // 統計タイプを取得
-        String statType = null;
-        if (objective.getName().startsWith("total_")) {
-            statType = objective.getName().substring(6); // "total_" を除去
-            if (!TotalStatsManager.getEnabledStats().contains(statType)) {
-                return ""; // 無効な統計
-            }
+    private void loadLegacyConfig() {
+        try {
+            File file = new File("config/serverscoreboard/discord_bot.json");
+            if (!file.exists()) return;
             
-            // キャッシュされたデータからも取得
-            Map<String, Integer> cachedStats = PlayerStatsCache.getAllPlayerStats(statType);
-            for (Map.Entry<String, Integer> entry : cachedStats.entrySet()) {
-                String playerName = entry.getKey();
-                if (!TotalStatsManager.isPlayerExcluded(playerName) && entry.getValue() > 0) {
-                    scores.put(playerName, entry.getValue());
-                    serverTotal += entry.getValue();
+            try (FileReader reader = new FileReader(file)) {
+                JsonObject root = JsonParser.parseReader(reader).getAsJsonObject();
+                if (root.has("token")) {
+                    botToken = root.get("token").getAsString();
                 }
             }
-        } else {
-            // 通常のスコアボードの場合
-            for (String playerName : server.getScoreboard().getKnownPlayers()) {
-                ScoreboardPlayerScore score = server.getScoreboard().getPlayerScore(playerName, objective);
-                if (score != null && score.getScore() > 0) {
-                    // 除外プレイヤーはスキップ
-                    if (!TotalStatsManager.isPlayerExcluded(playerName)) {
-                        scores.put(playerName, score.getScore());
-                        serverTotal += score.getScore();
-                    }
-                }
-            }
+        } catch (Exception e) {
+            ServerScoreboardLogger.error("Failed to load legacy config: " + e.getMessage());
         }
-        
-        if (scores.isEmpty() && serverTotal == 0) {
-            return "";
-        }
-        
-        // スコア順にソート（降順）
-        List<Map.Entry<String, Integer>> sortedScores = new ArrayList<>(scores.entrySet());
-        sortedScores.sort(Map.Entry.<String, Integer>comparingByValue().reversed());
-        
-        // フォーマット
-        StringBuilder sb = new StringBuilder();
-        sb.append("```\n");
-        
-        // サーバー合計を最上部に表示（$SERVER_TOTALで左揃え）
-        if (objective.getName().contains("play_time")) {
-            int totalMinutes = serverTotal / 20 / 60; // ticks -> minutes
-            int hours = totalMinutes / 60;
-            int minutes = totalMinutes % 60;
-            sb.append(String.format("$SERVER_TOTAL%16s\n", String.format("%dh %dm", hours, minutes)));
-        } else {
-            sb.append(String.format("$SERVER_TOTAL%16d\n", serverTotal));
-        }
-        
-        // 横線を追加
-        sb.append("─────────────────────────────\n");
-        
-        // プレイヤースコア（スコア順）
-        for (Map.Entry<String, Integer> entry : sortedScores) {
-            String playerName = entry.getKey();
-            int score = entry.getValue();
-            
-            // play_timeの場合は時間フォーマット
-            if (objective.getName().contains("play_time")) {
-                int totalMinutes = score / 20 / 60; // ticks -> minutes
-                int hours = totalMinutes / 60;
-                int minutes = totalMinutes % 60;
-                sb.append(String.format("%-16s%13s\n", playerName, String.format("%dh %dm", hours, minutes)));
-            } else {
-                sb.append(String.format("%-16s%13d\n", playerName, score));
-            }
-        }
-        
-        sb.append("```");
-        return sb.toString();
     }
     
     public static class ForumThreadInfo {
@@ -941,7 +396,7 @@ public class SimpleDiscordBot implements WebSocket.Listener {
         public final String threadId;
         public String lastMessageId;
         
-        ForumThreadInfo(String objectiveName, String threadId, String lastMessageId) {
+        public ForumThreadInfo(String objectiveName, String threadId, String lastMessageId) {
             this.objectiveName = objectiveName;
             this.threadId = threadId;
             this.lastMessageId = lastMessageId;

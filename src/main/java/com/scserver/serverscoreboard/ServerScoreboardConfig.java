@@ -11,7 +11,8 @@ public class ServerScoreboardConfig {
     public static final int GUI_OPEN_COOLDOWN_MS = 1000; // GUI開くクールダウン（ミリ秒）
     
     // 更新頻度設定
-    public static final int UPDATE_INTERVAL_TICKS = 20; // スコアボード更新間隔（tick）
+    public static final int UPDATE_INTERVAL_TICKS = 1; // スコアボード更新間隔（毎tick）
+    public static final int STATS_UPDATE_INTERVAL_TICKS = 1; // 統計更新間隔（毎tick）- 高速表示用
     
     // 自己変更機能の権限設定
     public static final boolean ALLOW_SELF_MODIFICATION = true; // プレイヤーが自分のスコアボードを変更できるか
@@ -26,7 +27,7 @@ public class ServerScoreboardConfig {
     
     // デバッグモード設定
     public static boolean DEBUG_MODE_ENABLED = false; // デバッグモードの有効/無効
-    public static boolean DEBUG_BROADCAST_TO_OPS = true; // デバッグメッセージをOP権限者にのみ送信
+    public static boolean DEBUG_BROADCAST_TO_OPS = false; // デバッグメッセージをOP権限者にのみ送信
     public static int DEBUG_LOG_OP_LEVEL = 2; // デバッグログを受信するのに必要なOPレベル
     
     public static boolean isValidObjectiveName(String name) {

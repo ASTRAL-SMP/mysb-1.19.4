@@ -16,6 +16,7 @@ import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.TypedActionResult;
 import net.fabricmc.loader.api.FabricLoader;
+import java.util.UUID;
 
 public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
     public static final String MOD_ID = "mysb";
@@ -30,7 +31,6 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
     @Override
     public void onInitializeServer() {
         // サーバーサイドの初期化のみ
-        ServerScoreboardLogger.info("MySB (My Scoreboard) Mod initializing on server...");
         
         // コマンド登録
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
@@ -59,8 +59,17 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
                     state.getBlock().getName().getString(), 
                     pos.toString()));
                 
-                // ブロック破壊時に統計を強制更新
-                world.getServer().execute(() -> TotalStatsManager.forceUpdateAllStats());
+                // バルク更新システムを使用
+                UUID playerId = ((ServerPlayerEntity) player).getUuid();
+                boolean needsBulkUpdate = BulkUpdateManager.recordUpdate(playerId, "block_break");
+                
+                if (needsBulkUpdate) {
+                    // バルク処理を実行
+                    BulkUpdateManager.executeBulkUpdate(playerId);
+                } else {
+                    // 通常の即座更新
+                    TotalStatsManager.scheduleInstantUpdate();
+                }
             }
         });
         
@@ -74,33 +83,31 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
                         hitResult.getBlockPos().toString()));
                 }
                 
-                // ブロック設置時に統計を強制更新（2tick後）
-                if (world.getServer() != null) {
-                    world.getServer().execute(() -> {
-                        // 少し遅延させて統計が確実に更新されるようにする
-                        world.getServer().execute(() -> TotalStatsManager.forceUpdateAllStats());
-                    });
+                // バルク更新システムを使用（ブロック設置）
+                UUID playerId = ((ServerPlayerEntity) player).getUuid();
+                boolean needsBulkUpdate = BulkUpdateManager.recordUpdate(playerId, "block_place");
+                
+                if (needsBulkUpdate) {
+                    // バルク処理を実行
+                    BulkUpdateManager.executeBulkUpdate(playerId);
+                } else {
+                    // 通常の即座更新
+                    TotalStatsManager.scheduleInstantUpdate();
                 }
             }
             return ActionResult.PASS;
         });
         
         ServerLivingEntityEvents.AFTER_DEATH.register((entity, damageSource) -> {
-            // エンティティ死亡時に統計を強制更新
-            if (entity.getServer() != null) {
-                entity.getServer().execute(() -> TotalStatsManager.forceUpdateAllStats());
-            }
+            // エンティティ死亡時の統計更新（バルクなし、即座実行）
+            TotalStatsManager.scheduleInstantUpdate();
         });
         
         // アイテム使用時のイベント
         UseItemCallback.EVENT.register((player, world, hand) -> {
             if (!world.isClient && player instanceof ServerPlayerEntity) {
-                // アイテム使用時に統計を強制更新（1tick後）
-                if (player.getServer() != null) {
-                    player.getServer().execute(() -> {
-                        player.getServer().execute(() -> TotalStatsManager.forceUpdateAllStats());
-                    });
-                }
+                // アイテム使用時の統計更新（即座実行）
+                TotalStatsManager.scheduleInstantUpdate();
             }
             return TypedActionResult.pass(player.getStackInHand(hand));
         });
@@ -108,14 +115,8 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
         // エンティティ攻撃時のイベント（キル統計用）
         AttackEntityCallback.EVENT.register((player, world, hand, entity, hitResult) -> {
             if (!world.isClient && player instanceof ServerPlayerEntity) {
-                // 攻撃時に統計を強制更新（2tick後、キルが確定してから）
-                if (player.getServer() != null) {
-                    player.getServer().execute(() -> {
-                        player.getServer().execute(() -> {
-                            player.getServer().execute(() -> TotalStatsManager.forceUpdateAllStats());
-                        });
-                    });
-                }
+                // 攻撃時の統計更新（即座実行）
+                TotalStatsManager.scheduleInstantUpdate();
             }
             return ActionResult.PASS;
         });
@@ -135,11 +136,10 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
         ServerScoreboardManager.loadScoreboardData(server);
         
         // Discord Botの初期化
-        SimpleDiscordBot.getInstance().initialize(server);
+        SimpleDiscordBot.getInstance().start(server);
         
         // デバッグモードの状態をログに記録
         if (ServerScoreboardConfig.DEBUG_MODE_ENABLED) {
-            ServerScoreboardLogger.info("Debug mode is ENABLED");
         }
     }
 
@@ -152,7 +152,7 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
         
         // Discord Botのシャットダウン
         if (SimpleDiscordBot.getInstance().isRunning()) {
-            SimpleDiscordBot.getInstance().shutdown();
+            SimpleDiscordBot.getInstance().stop();
         }
     }
 
@@ -163,15 +163,25 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
 
     private void onPlayerDisconnect(net.minecraft.server.network.ServerPlayNetworkHandler handler, MinecraftServer server) {
         // プレイヤー切断時の処理
-        ServerScoreboardManager.onPlayerDisconnect(handler.getPlayer());
+        ServerPlayerEntity player = handler.getPlayer();
+        ServerScoreboardManager.onPlayerDisconnect(player);
+        
+        // バルク更新履歴をクリーンアップ
+        BulkUpdateManager.clearPlayerHistory(player.getUuid());
     }
 
     private void onServerTick(MinecraftServer server) {
-        // 定期的にクライアントのスコアボード状態を更新
-        ServerScoreboardManager.updateClientScoreboards(server);
-        
-        // 毎ティックで統計をチェック（変更がある場合のみ更新）
+        // リアルタイム差分更新：毎tick実行（通常のScoreboardのような動作）
+        ServerScoreboardManager.updateClientScoreboardsDifferential(server);
         TotalStatsManager.updateAllTotalStats();
+        
+        // スコアボード切り替え処理（INTERVAL毎に実行）
+        if (server.getTicks() % ServerScoreboardConfig.UPDATE_INTERVAL_TICKS == 0) {
+            ServerScoreboardManager.updateClientScoreboards(server);
+        }
+        
+        // バッチ処理のフラッシュを定期的に実行
+        BatchedScoreboardUpdater.flushAllBatches();
         
         // 5分ごとにキャッシュを保存（300秒 * 20 ticks/秒 = 6000 ticks）
         if (server.getTicks() % 6000 == 0) {

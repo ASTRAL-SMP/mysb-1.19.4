@@ -8,8 +8,9 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class BatchedScoreboardUpdater {
     private static final Map<UUID, List<PendingUpdate>> pendingUpdates = new ConcurrentHashMap<>();
-    private static final int MAX_BATCH_SIZE = 20; // 最大バッチサイズ
-    private static final long BATCH_TIMEOUT_MS = 100; // バッチタイムアウト（100ms）
+    private static final int MAX_BATCH_SIZE = 50; // 最大バッチサイズ（高速表示用に増加）
+    private static final long BATCH_TIMEOUT_MS = 20; // バッチタイムアウト（20ms）- 超高速フラッシュ
+    private static final long INSTANT_FLUSH_THRESHOLD = 5; // 5ms以内の変更は即座にフラッシュ
     
     public static class PendingUpdate {
         public final String objectiveName;
@@ -33,10 +34,19 @@ public class BatchedScoreboardUpdater {
         List<PendingUpdate> updates = pendingUpdates.computeIfAbsent(playerId, k -> new ArrayList<>());
         
         synchronized (updates) {
+            // 同じプレイヤー・オブジェクトの更新がある場合は最新のもので上書き（差分送信）
+            updates.removeIf(existing -> 
+                existing.objectiveName.equals(objectiveName) && 
+                existing.playerName.equals(playerName));
+            
             updates.add(new PendingUpdate(objectiveName, playerName, score, isRemoval));
             
-            // バッチサイズまたはタイムアウトに達した場合、即座に送信
-            if (updates.size() >= MAX_BATCH_SIZE || shouldFlushBatch(updates)) {
+            // 即座フラッシュの条件をチェック
+            boolean shouldInstantFlush = updates.size() >= MAX_BATCH_SIZE || 
+                                       shouldFlushBatch(updates) ||
+                                       shouldInstantFlush(updates);
+            
+            if (shouldInstantFlush) {
                 flushBatch(player, updates);
             }
         }
@@ -70,13 +80,22 @@ public class BatchedScoreboardUpdater {
             updates.clear();
         }
         
-        ServerScoreboardLogger.info("Flushed batch for player " + player.getName().getString() + ": " + sentCount + " updates sent");
+        if (sentCount > 0) {
+            ServerScoreboardLogger.debug("Flushed batch for player " + player.getName().getString() + ": " + sentCount + " updates sent");
+        }
     }
     
     private static boolean shouldFlushBatch(List<PendingUpdate> updates) {
         if (updates.isEmpty()) return false;
         long oldestTimestamp = updates.get(0).timestamp;
         return System.currentTimeMillis() - oldestTimestamp >= BATCH_TIMEOUT_MS;
+    }
+    
+    // 即座フラッシュが必要かチェック
+    private static boolean shouldInstantFlush(List<PendingUpdate> updates) {
+        if (updates.isEmpty()) return false;
+        long newestTimestamp = updates.get(updates.size() - 1).timestamp;
+        return System.currentTimeMillis() - newestTimestamp <= INSTANT_FLUSH_THRESHOLD;
     }
     
     // 定期的なバッチフラッシュ（ServerTickEventで呼び出し）
