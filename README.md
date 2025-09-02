@@ -21,10 +21,14 @@ Players can modify their own scoreboard display.
 - ✅ **Discord Bot連携** - 統計データをDiscordに自動投稿
 
 ## 更新履歴 (Update History)
-### 2025/07/30
+
 - **バグ修正**: サーバー停止時にプロセスが正常に終了しない問題を修正
   - Discord Bot のスケジューラーが適切にシャットダウンされていなかった問題を解決
   - Windows環境でサーバー停止後に「キーを押してください」のプロンプトが表示されない問題を修正
+  - このmodを導入しているとサーバーが重くなってしまう問題を修正
+  - 時間、移動距離に関するscoreboardを削除
+  - Web Socket通信からWeb Hook通信に変更
+  - 金床などのuseを表示するものがバグっていたものを修正
 
 ## インストール (Installation)
 **重要**: このmodは**サーバー側にのみ**インストールしてください。
@@ -54,10 +58,6 @@ Installing on the client side will have no effect.
 /mysb admin stats disable <stat>  # 統計を無効化（OPレベル3以上） / Disable a statistic (OP level 3+)
 /mysb admin stats list            # 統計の有効/無効状態を表示 / Show enabled/disabled stats
 /mysb admin gui             # 統計管理GUIを開く / Open statistics management GUI
-/mysb discord set-channel <フォーラムチャンネルID>  # Discord投稿先を設定 / Set Discord forum channel
-/mysb discord add <スコアボード名>  # スコアボードをDiscordに追加 / Add scoreboard to Discord
-/mysb discord remove <スコアボード名>  # スコアボードをDiscordから削除 / Remove from Discord
-/mysb discord list  # Discord連携中のスコアボード一覧 / List Discord-linked scoreboards
 ```
 
 #### 利用可能な統計タイプ (Available Stat Types)
@@ -67,8 +67,6 @@ Installing on the client side will have no effect.
 - `deaths` - 死亡数
 - `damage_dealt` - 与ダメージ
 - `damage_taken` - 被ダメージ
-- `play_time` - プレイ時間
-- `walk_one_cm` - 移動距離
 - `jump` - ジャンプ数
 - `fish_caught` - 釣り上げ数
 
@@ -103,8 +101,6 @@ Installing on the client side will have no effect.
 - 追加で有効化可能な統計 / Additional available statistics:
   - Total Damage Dealt
   - Total Damage Taken
-  - Total Play Time
-  - Total Distance Walked
   - Total Jumps
   - Total Fish Caught
 
@@ -117,16 +113,9 @@ Installing on the client side will have no effect.
 
 1. **Discord Botの設定** / **Discord Bot Setup**:
    - `config/serverscoreboard/discord_bot.json` にBotトークンを設定 / Set bot token in config file
-   - Botに必要な権限: メッセージ送信、スレッド作成、スラッシュコマンド / Required permissions: Send messages, Create threads, Slash commands
+   - Botに必要な権限: メッセージ送信、スレッド作成 / Required permissions: Send messages, Create threads, Slash commands
 
-2. **使用方法** / **Usage**:
-   - `/mysb discord set-channel <ID>` でフォーラムチャンネルを設定 / Set forum channel
-   - `/mysb discord add <スコアボード名>` で統計を追加 / Add statistics
-   - 毎朝5時に自動更新 / Updates automatically at 5 AM daily
-
-3. **Discord スラッシュコマンド** / **Discord Slash Commands**:
-   - `/scoreboard <objective>` - スコアボードデータを表示 / Display scoreboard data
-   - `/scoreboard-setchannel` - フォーラムチャンネルを設定 / Set forum channel
+2. **また、このmodにおいてはWeb hookを使用しているため、Discord側からコマンドを使用してデータを取得することは不可能です**
 
 ## 権限設定 (Permission Settings)
 `ServerScoreboardConfig.java` で以下の設定を変更できます：
@@ -151,3 +140,4 @@ MIT License
 
 ---
 **Server-Side Only Mod - No Client Installation Required**
+
