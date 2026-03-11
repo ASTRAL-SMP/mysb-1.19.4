@@ -54,7 +54,6 @@ public class ScoreboardDataReader {
                 }
             }
             
-            ServerScoreboardLogger.debug("Read " + result.size() + " player scores for objective " + objectiveName);
             
         } catch (IOException e) {
             ServerScoreboardLogger.error("Failed to read scoreboard.dat", e);

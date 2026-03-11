@@ -2,12 +2,13 @@ package com.scserver.serverscoreboard;
 
 import net.minecraft.nbt.NbtCompound;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class CustomScoreboardData {
     private final UUID playerId;
     private String customObjectiveName;
     private String customDisplayName;
-    private final Map<String, Integer> customScores = new HashMap<>();
+    private final Map<String, Integer> customScores = new ConcurrentHashMap<>();
     private boolean enabled = false;
 
     public CustomScoreboardData(UUID playerId) {

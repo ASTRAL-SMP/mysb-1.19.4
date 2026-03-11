@@ -20,8 +20,7 @@ import java.util.ArrayList;
 import java.util.Map;
 import java.util.Set;
 
-public class ServerScoreboardAdminGUI {
-    private static final int GUI_SIZE = 54;
+public class ServerScoreboardAdminGUI implements GUIConstants {
     
     public enum AdminPage {
         STATS,
@@ -49,15 +48,15 @@ public class ServerScoreboardAdminGUI {
     private static void setupStatsGUI(SimpleInventory inventory, ServerPlayerEntity player, int page) {
         inventory.clear();
         
-        // Slot 0: スコアボード管理へ切り替え
+        // Slot SLOT_SWITCH: スコアボード管理へ切り替え
         ItemStack switchButton = new ItemStack(Items.COMPASS);
         switchButton.setCustomName(Text.literal("スコアボード管理へ").formatted(Formatting.AQUA));
-        inventory.setStack(0, switchButton);
-        
-        // Slot 8: Close button
+        inventory.setStack(SLOT_SWITCH, switchButton);
+
+        // Slot SLOT_CLOSE: Close button
         ItemStack closeButton = new ItemStack(Items.REDSTONE);
         closeButton.setCustomName(Text.literal("閉じる").formatted(Formatting.RED));
-        inventory.setStack(8, closeButton);
+        inventory.setStack(SLOT_CLOSE, closeButton);
         
         // Get all available stats
         Map<String, String> allStats = TotalStatsManager.getAllAvailableStats();
@@ -68,25 +67,25 @@ public class ServerScoreboardAdminGUI {
         if (page > 0) {
             ItemStack prevButton = new ItemStack(Items.ARROW);
             prevButton.setCustomName(Text.literal("前のページ").formatted(Formatting.AQUA));
-            inventory.setStack(18, prevButton);
+            inventory.setStack(SLOT_PREV, prevButton);
         }
-        
-        if ((page + 1) * 27 < statsList.size()) {
+
+        if ((page + 1) * ITEMS_PER_PAGE < statsList.size()) {
             ItemStack nextButton = new ItemStack(Items.ARROW);
             nextButton.setCustomName(Text.literal("次のページ").formatted(Formatting.AQUA));
-            inventory.setStack(26, nextButton);
+            inventory.setStack(SLOT_NEXT, nextButton);
         }
-        
+
         // Display stats
-        int startIndex = page * 27;
-        int endIndex = Math.min(startIndex + 27, statsList.size());
-        
+        int startIndex = page * ITEMS_PER_PAGE;
+        int endIndex = Math.min(startIndex + ITEMS_PER_PAGE, statsList.size());
+
         for (int i = startIndex; i < endIndex; i++) {
             Map.Entry<String, String> stat = statsList.get(i);
             String statId = stat.getKey();
             String displayName = stat.getValue();
             boolean isEnabled = enabledStats.contains(statId);
-            
+
             ItemStack statItem = new ItemStack(isEnabled ? Items.GOLDEN_APPLE : Items.APPLE);
             statItem.setCustomName(Text.literal(displayName)
                     .formatted(isEnabled ? Formatting.GOLD : Formatting.GRAY));
@@ -96,12 +95,12 @@ public class ServerScoreboardAdminGUI {
                     .formatted(isEnabled ? Formatting.GREEN : Formatting.RED));
             lore.add(Text.literal("クリックで切り替え").formatted(Formatting.GRAY));
             statItem.setNbt(statItem.getOrCreateNbt());
-            
-            inventory.setStack(27 + (i - startIndex), statItem);
+
+            inventory.setStack(SLOT_ITEMS_START + (i - startIndex), statItem);
         }
-        
+
         // Fill empty slots
-        for (int i = 0; i < 54; i++) {
+        for (int i = 0; i < GUI_SIZE; i++) {
             if (inventory.getStack(i).isEmpty()) {
                 ItemStack glassPane = new ItemStack(Items.GRAY_STAINED_GLASS_PANE);
                 glassPane.setCustomName(Text.literal(" "));
@@ -113,15 +112,15 @@ public class ServerScoreboardAdminGUI {
     private static void setupObjectivesGUI(SimpleInventory inventory, ServerPlayerEntity player, int page) {
         inventory.clear();
         
-        // Slot 0: 統計管理へ切り替え
+        // Slot SLOT_SWITCH: 統計管理へ切り替え
         ItemStack switchButton = new ItemStack(Items.BOOK);
         switchButton.setCustomName(Text.literal("統計管理へ").formatted(Formatting.AQUA));
-        inventory.setStack(0, switchButton);
-        
-        // Slot 8: Close button
+        inventory.setStack(SLOT_SWITCH, switchButton);
+
+        // Slot SLOT_CLOSE: Close button
         ItemStack closeButton = new ItemStack(Items.REDSTONE);
         closeButton.setCustomName(Text.literal("閉じる").formatted(Formatting.RED));
-        inventory.setStack(8, closeButton);
+        inventory.setStack(SLOT_CLOSE, closeButton);
         
         // Get objectives list
         List<String> objectives = getObjectivesList(player);
@@ -130,28 +129,28 @@ public class ServerScoreboardAdminGUI {
         if (page > 0) {
             ItemStack prevButton = new ItemStack(Items.ARROW);
             prevButton.setCustomName(Text.literal("前のページ").formatted(Formatting.AQUA));
-            inventory.setStack(18, prevButton);
+            inventory.setStack(SLOT_PREV, prevButton);
         }
-        
-        if ((page + 1) * 27 < objectives.size()) {
+
+        if ((page + 1) * ITEMS_PER_PAGE < objectives.size()) {
             ItemStack nextButton = new ItemStack(Items.ARROW);
             nextButton.setCustomName(Text.literal("次のページ").formatted(Formatting.AQUA));
-            inventory.setStack(26, nextButton);
+            inventory.setStack(SLOT_NEXT, nextButton);
         }
-        
+
         // Display objectives
-        int startIndex = page * 27;
-        int endIndex = Math.min(startIndex + 27, objectives.size());
-        
+        int startIndex = page * ITEMS_PER_PAGE;
+        int endIndex = Math.min(startIndex + ITEMS_PER_PAGE, objectives.size());
+
         for (int i = startIndex; i < endIndex; i++) {
             String objective = objectives.get(i);
             ItemStack objectiveItem = new ItemStack(Items.PAPER);
             objectiveItem.setCustomName(Text.literal(objective).formatted(Formatting.WHITE));
-            inventory.setStack(27 + (i - startIndex), objectiveItem);
+            inventory.setStack(SLOT_ITEMS_START + (i - startIndex), objectiveItem);
         }
-        
+
         // Fill empty slots
-        for (int i = 0; i < 54; i++) {
+        for (int i = 0; i < GUI_SIZE; i++) {
             if (inventory.getStack(i).isEmpty()) {
                 ItemStack glassPane = new ItemStack(Items.GRAY_STAINED_GLASS_PANE);
                 glassPane.setCustomName(Text.literal(" "));
@@ -170,7 +169,7 @@ public class ServerScoreboardAdminGUI {
         return list;
     }
     
-    public static class AdminScreenHandler extends GenericContainerScreenHandler {
+    public static class AdminScreenHandler extends GenericContainerScreenHandler implements GUIConstants {
         private final ServerPlayerEntity player;
         private final SimpleInventory inventory;
         private final AdminPage currentPage;
@@ -211,7 +210,7 @@ public class ServerScoreboardAdminGUI {
         
         private void handleSlotClick(int slotIndex) {
             switch (slotIndex) {
-                case 0:
+                case SLOT_SWITCH:
                     // Switch between pages
                     if (currentPage == AdminPage.STATS) {
                         player.closeHandledScreen();
@@ -221,21 +220,21 @@ public class ServerScoreboardAdminGUI {
                         ServerScoreboardAdminGUI.openFor(player, AdminPage.STATS);
                     }
                     break;
-                    
-                case 8:
+
+                case SLOT_CLOSE:
                     // Close button
                     player.closeHandledScreen();
                     break;
-                    
-                case 18:
+
+                case SLOT_PREV:
                     // Previous page
                     if (pageNumber > 0) {
                         pageNumber--;
                         refreshGUI();
                     }
                     break;
-                    
-                case 26:
+
+                case SLOT_NEXT:
                     // Next page
                     int itemCount = 0;
                     if (currentPage == AdminPage.STATS) {
@@ -243,16 +242,16 @@ public class ServerScoreboardAdminGUI {
                     } else {
                         itemCount = getObjectivesList(player).size();
                     }
-                    
-                    if ((pageNumber + 1) * 27 < itemCount) {
+
+                    if ((pageNumber + 1) * ITEMS_PER_PAGE < itemCount) {
                         pageNumber++;
                         refreshGUI();
                     }
                     break;
-                    
+
                 default:
-                    // Item selection (27-53)
-                    if (slotIndex >= 27 && slotIndex <= 53) {
+                    // Item selection (SLOT_ITEMS_START - SLOT_ITEMS_END)
+                    if (slotIndex >= SLOT_ITEMS_START && slotIndex <= SLOT_ITEMS_END) {
                         handleItemSelection(slotIndex);
                     }
                     break;
@@ -260,41 +259,46 @@ public class ServerScoreboardAdminGUI {
         }
         
         private void handleItemSelection(int slotIndex) {
-            int itemIndex = pageNumber * 27 + (slotIndex - 27);
-            
-            if (currentPage == AdminPage.STATS) {
-                // 統計ページの場合
-                Map<String, String> allStats = TotalStatsManager.getAllAvailableStats();
-                List<Map.Entry<String, String>> statsList = new ArrayList<>(allStats.entrySet());
-                
-                if (itemIndex < statsList.size()) {
-                    String statId = statsList.get(itemIndex).getKey();
-                    Set<String> enabledStats = TotalStatsManager.getEnabledStats();
-                    
-                    if (enabledStats.contains(statId)) {
-                        // 現在有効なので無効化
-                        TotalStatsManager.disableStat(statId);
-                        player.sendMessage(Text.literal("統計「" + statId + "」を無効化しました")
-                                .formatted(Formatting.RED));
-                    } else {
-                        // 現在無効なので有効化
-                        TotalStatsManager.enableStat(statId);
-                        player.sendMessage(Text.literal("統計「" + statId + "」を有効化しました")
-                                .formatted(Formatting.GREEN));
+            int itemIndex = pageNumber * ITEMS_PER_PAGE + (slotIndex - SLOT_ITEMS_START);
+
+            try {
+                if (currentPage == AdminPage.STATS) {
+                    // 統計ページの場合
+                    Map<String, String> allStats = TotalStatsManager.getAllAvailableStats();
+                    List<Map.Entry<String, String>> statsList = new ArrayList<>(allStats.entrySet());
+
+                    if (itemIndex < statsList.size()) {
+                        String statId = statsList.get(itemIndex).getKey();
+                        Set<String> enabledStats = TotalStatsManager.getEnabledStats();
+
+                        if (enabledStats.contains(statId)) {
+                            // 現在有効なので無効化
+                            TotalStatsManager.disableStat(statId);
+                            player.sendMessage(Text.literal("統計「" + statId + "」を無効化しました")
+                                    .formatted(Formatting.RED));
+                        } else {
+                            // 現在無効なので有効化
+                            TotalStatsManager.enableStat(statId);
+                            player.sendMessage(Text.literal("統計「" + statId + "」を有効化しました")
+                                    .formatted(Formatting.GREEN));
+                        }
+
+                        // GUIを更新
+                        refreshGUI();
                     }
-                    
-                    // GUIを更新
-                    refreshGUI();
+                } else {
+                    // スコアボードページの場合
+                    List<String> objectives = getObjectivesList(player);
+
+                    if (itemIndex < objectives.size()) {
+                        String objective = objectives.get(itemIndex);
+                        // ここでは特に何もしない（将来の拡張用）
+                        player.sendMessage(Text.literal("スコアボード: " + objective).formatted(Formatting.AQUA));
+                    }
                 }
-            } else {
-                // スコアボードページの場合
-                List<String> objectives = getObjectivesList(player);
-                
-                if (itemIndex < objectives.size()) {
-                    String objective = objectives.get(itemIndex);
-                    // ここでは特に何もしない（将来の拡張用）
-                    player.sendMessage(Text.literal("スコアボード: " + objective).formatted(Formatting.AQUA));
-                }
+            } catch (Exception e) {
+                ServerScoreboardLogger.error("Error handling item selection in admin GUI", e);
+                player.sendMessage(Text.literal("エラーが発生しました").formatted(Formatting.RED));
             }
         }
         

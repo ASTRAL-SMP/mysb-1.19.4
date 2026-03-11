@@ -21,14 +21,9 @@ Players can modify their own scoreboard display.
 - ✅ **Discord Bot連携** - 統計データをDiscordに自動投稿
 
 ## 更新履歴 (Update History)
-
 - **バグ修正**: サーバー停止時にプロセスが正常に終了しない問題を修正
-  - Discord Bot のスケジューラーが適切にシャットダウンされていなかった問題を解決
-  - Windows環境でサーバー停止後に「キーを押してください」のプロンプトが表示されない問題を修正
-  - このmodを導入しているとサーバーが重くなってしまう問題を修正
-  - 時間、移動距離に関するscoreboardを削除
-  - Web Socket通信からWeb Hook通信に変更
-  - 金床などのuseを表示するものがバグっていたものを修正
+    - Discord Bot のスケジューラーが適切にシャットダウンされていなかった問題を解決
+    - Windows環境でサーバー停止後に「キーを押してください」のプロンプトが表示されない問題を修正
 
 ## インストール (Installation)
 **重要**: このmodは**サーバー側にのみ**インストールしてください。
@@ -58,17 +53,21 @@ Installing on the client side will have no effect.
 /mysb admin stats disable <stat>  # 統計を無効化（OPレベル3以上） / Disable a statistic (OP level 3+)
 /mysb admin stats list            # 統計の有効/無効状態を表示 / Show enabled/disabled stats
 /mysb admin gui             # 統計管理GUIを開く / Open statistics management GUI
+/mysb discord set-channel <フォーラムチャンネルID>  # Discord投稿先を設定 / Set Discord forum channel
+/mysb discord add <スコアボード名>  # スコアボードをDiscordに追加 / Add scoreboard to Discord
+/mysb discord remove <スコアボード名>  # スコアボードをDiscordから削除 / Remove from Discord
+/mysb discord list  # Discord連携中のスコアボード一覧 / List Discord-linked scoreboards
 ```
 
 #### 利用可能な統計タイプ (Available Stat Types)
-- `mined` - ブロック採掘数
-- `placed` - ブロック設置数
-- `killed` - モブ撃破数
-- `deaths` - 死亡数
-- `damage_dealt` - 与ダメージ
-- `damage_taken` - 被ダメージ
-- `jump` - ジャンプ数
-- `fish_caught` - 釣り上げ数
+- `Total Blocks Mined`
+- `Total Blocks Placed`
+- `Total Deepslate Mined`
+- `Total Coral Blocks Mined`
+- `Total Stained Glass Placed`
+- `Total Anvils Placed`
+- `Total Villager Trades`
+- `Total All Ores Mined`
 
 ### GUI操作 (GUI Operation)
 `/mysb` コマンドを実行すると、チェスト型のGUIが開きます： / Execute `/mysb` to open a chest-type GUI:
@@ -92,18 +91,6 @@ Installing on the client side will have no effect.
 ### トータル統計機能 (Total Statistics)
 サーバー全体のプレイヤーの統計を合計して表示する機能です。 / Shows server-wide player statistics totals.
 
-- デフォルトで有効化される統計 / Statistics enabled by default:
-  - Total Blocks Mined
-  - Total Blocks Placed
-  - Total Mobs Killed
-  - Total Deaths
-
-- 追加で有効化可能な統計 / Additional available statistics:
-  - Total Damage Dealt
-  - Total Damage Taken
-  - Total Jumps
-  - Total Fish Caught
-
 - 各統計には個別プレイヤーのスコアとサーバー合計が表示されます / Each statistic shows individual player scores and server total
 - 統計は5秒ごとに自動更新されます / Statistics update automatically every 5 seconds
 - GUIには別ページがあり、ナビゲーション可能です / GUI has separate pages with navigation
@@ -112,10 +99,13 @@ Installing on the client side will have no effect.
 統計データをDiscordのフォーラムチャンネルに自動投稿する機能です。 / Automatically posts statistics to Discord forum channels.
 
 1. **Discord Botの設定** / **Discord Bot Setup**:
-   - `config/serverscoreboard/discord_bot.json` にBotトークンを設定 / Set bot token in config file
-   - Botに必要な権限: メッセージ送信、スレッド作成 / Required permissions: Send messages, Create threads, Slash commands
+    - `config/serverscoreboard/discord_bot.json` にBotトークンを設定 / Set bot token in config file
+    - Botに必要な権限: メッセージ送信、スレッド作成、スラッシュコマンド / Required permissions: Send messages, Create threads, Slash commands
 
-2. **また、このmodにおいてはWeb hookを使用しているため、Discord側からコマンドを使用してデータを取得することは不可能です**
+2. **使用方法** / **Usage**:
+    - `/mysb discord set-channel <ID>` でフォーラムチャンネルを設定 / Set forum channel
+    - `/mysb discord add <スコアボード名>` で統計を追加 / Add statistics
+    - 毎朝5時に自動更新 / Updates automatically at 5 AM daily
 
 ## 権限設定 (Permission Settings)
 `ServerScoreboardConfig.java` で以下の設定を変更できます：

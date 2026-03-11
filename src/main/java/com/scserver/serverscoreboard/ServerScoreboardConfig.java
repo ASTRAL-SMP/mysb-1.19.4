@@ -18,17 +18,10 @@ public class ServerScoreboardConfig {
     public static final boolean ALLOW_SELF_MODIFICATION = true; // プレイヤーが自分のスコアボードを変更できるか
     public static final boolean REQUIRE_OP_FOR_SELF_CUSTOM = false; // カスタムスコアボードの自己変更にOP権限が必要か
     public static final int SELF_MODIFICATION_OP_LEVEL = 0; // 自己変更に必要なOPレベル（0=全員可能）
+
+    // Fake Player設定
+    public static boolean FAKE_PLAYER_SCORE_ENABLED = true; // Fake Player（例：Carpetのfake player）のスコア表示の有効/無効
     
-    // Discord Bot設定
-    public static String DISCORD_BOT_TOKEN = ""; // Discord Botトークン
-    public static String DISCORD_FORUM_CHANNEL_ID = ""; // フォーラムチャンネルID
-    public static boolean DISCORD_BOT_ENABLED = false; // Discord Bot機能の有効/無効
-    public static int DISCORD_COMMAND_OP_LEVEL = 2; // Discord連携コマンドに必要なOPレベル
-    
-    // デバッグモード設定
-    public static boolean DEBUG_MODE_ENABLED = false; // デバッグモードの有効/無効
-    public static boolean DEBUG_BROADCAST_TO_OPS = false; // デバッグメッセージをOP権限者にのみ送信
-    public static int DEBUG_LOG_OP_LEVEL = 2; // デバッグログを受信するのに必要なOPレベル
     
     public static boolean isValidObjectiveName(String name) {
         if (name == null || name.trim().isEmpty()) {

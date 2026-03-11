@@ -1,5 +1,9 @@
 package com.scserver.serverscoreboard;
 
+import com.scserver.serverscoreboard.discord.DiscordBot;
+import com.scserver.serverscoreboard.discord.DiscordConfig;
+import com.scserver.serverscoreboard.discord.DiscordScheduler;
+import com.scserver.serverscoreboard.discord.DiscordStatsPublisher;
 import net.fabricmc.api.DedicatedServerModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
@@ -53,11 +57,6 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
         // プレイヤーのアクションイベント（統計のリアルタイム更新用）
         PlayerBlockBreakEvents.AFTER.register((world, player, pos, state, entity) -> {
             if (!world.isClient && player instanceof ServerPlayerEntity) {
-                // デバッグログ
-                ServerScoreboardLogger.debug(String.format("ブロック破壊: %s が %s を破壊しました (位置: %s)", 
-                    player.getName().getString(), 
-                    state.getBlock().getName().getString(), 
-                    pos.toString()));
                 
                 // バルク更新システムを使用
                 UUID playerId = ((ServerPlayerEntity) player).getUuid();
@@ -75,13 +74,6 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
         
         UseBlockCallback.EVENT.register((player, world, hand, hitResult) -> {
             if (!world.isClient && player instanceof ServerPlayerEntity) {
-                // デバッグログ（ブロック設置の可能性）
-                if (player.getStackInHand(hand) != null && !player.getStackInHand(hand).isEmpty()) {
-                    ServerScoreboardLogger.debug(String.format("ブロック使用: %s が %s を使用しました (位置: %s)", 
-                        player.getName().getString(), 
-                        player.getStackInHand(hand).getName().getString(), 
-                        hitResult.getBlockPos().toString()));
-                }
                 
                 // バルク更新システムを使用（ブロック設置）
                 UUID playerId = ((ServerPlayerEntity) player).getUuid();
@@ -125,35 +117,40 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
     private void onServerStarted(MinecraftServer server) {
         // ロガーにサーバーを設定
         ServerScoreboardLogger.setServer(server);
-        
+
         // トータル統計システムの初期化（データ読み込み前に必要）
         TotalStatsManager.init(server);
-        
+
         // プレイヤー統計キャッシュの初期化
         PlayerStatsCache.initialize(server);
-        
+
         // scoreboard.datファイルの読み込み（TotalStatsManager設定も含む）
         ServerScoreboardManager.loadScoreboardData(server);
-        
-        // Discord Botの初期化
-        SimpleDiscordBot.getInstance().start(server);
-        
-        // デバッグモードの状態をログに記録
-        if (ServerScoreboardConfig.DEBUG_MODE_ENABLED) {
+
+        // Discord連携の初期化
+        DiscordConfig.initialize(server);
+        DiscordStatsPublisher.initialize(server);
+        DiscordScheduler.initialize(server);
+
+        // Discord Botの初期化（スラッシュコマンド用）
+        if (DiscordConfig.isBotEnabled()) {
+            DiscordBot.initialize();
         }
+        ServerScoreboardLogger.info("Discord integration initialized");
     }
 
     private void onServerStopping(MinecraftServer server) {
+        // Discord Botをシャットダウン
+        DiscordBot.shutdown();
+
         // サーバー停止時にデータを保存
         ServerScoreboardManager.saveScoreboardData(server);
-        
+
         // プレイヤー統計キャッシュを保存
         PlayerStatsCache.saveCache();
-        
-        // Discord Botのシャットダウン
-        if (SimpleDiscordBot.getInstance().isRunning()) {
-            SimpleDiscordBot.getInstance().stop();
-        }
+
+        // Discord設定を保存
+        DiscordConfig.save();
     }
 
     private void onPlayerJoin(net.minecraft.server.network.ServerPlayNetworkHandler handler, net.fabricmc.fabric.api.networking.v1.PacketSender sender, MinecraftServer server) {
@@ -165,27 +162,36 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
         // プレイヤー切断時の処理
         ServerPlayerEntity player = handler.getPlayer();
         ServerScoreboardManager.onPlayerDisconnect(player);
-        
+
         // バルク更新履歴をクリーンアップ
         BulkUpdateManager.clearPlayerHistory(player.getUuid());
+
+        // メモリリーク防止: 各システムのプレイヤーデータをクリーンアップ
+        RateLimiter.clearPlayer(player.getUuid());
+        CustomScoreboardPacketSender.clearTransformedScoreCache(player.getUuidAsString());
+        BatchedScoreboardUpdater.clearPlayer(player.getUuid());
     }
 
     private void onServerTick(MinecraftServer server) {
         // リアルタイム差分更新：毎tick実行（通常のScoreboardのような動作）
         ServerScoreboardManager.updateClientScoreboardsDifferential(server);
         TotalStatsManager.updateAllTotalStats();
-        
+
         // スコアボード切り替え処理（INTERVAL毎に実行）
         if (server.getTicks() % ServerScoreboardConfig.UPDATE_INTERVAL_TICKS == 0) {
             ServerScoreboardManager.updateClientScoreboards(server);
         }
-        
+
         // バッチ処理のフラッシュを定期的に実行
         BatchedScoreboardUpdater.flushAllBatches();
-        
-        // 5分ごとにキャッシュを保存（300秒 * 20 ticks/秒 = 6000 ticks）
+
+        // 5分ごとにキャッシュとスコアボードデータを保存（300秒 * 20 ticks/秒 = 6000 ticks）
         if (server.getTicks() % 6000 == 0) {
             PlayerStatsCache.saveCache();
+            ServerScoreboardManager.saveScoreboardData(server);
         }
+
+        // Discordスケジューラのティック処理（1時間ごとの自動更新）
+        DiscordScheduler.onServerTick();
     }
 }

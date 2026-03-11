@@ -10,13 +10,13 @@ public class RateLimiter {
     // パケット数制限: プレイヤーUUID -> 直近1秒間のパケット数
     private static final ConcurrentHashMap<UUID, PacketCounter> packetCounters = new ConcurrentHashMap<>();
     
-    // 設定可能な制限値（高速表示用に大幅緩和）
-    private static volatile int maxPacketsPerSecond = 200; // 1秒間の最大パケット数（大幅増加）
-    private static volatile int maxScoreboardUpdatesPerSecond = 100; // スコアボード更新の最大回数（大幅増加）
-    
+    // 設定可能な制限値（パケット最適化: 差分更新により実際の送信数は少ないため適切な制限に調整）
+    private static volatile int maxPacketsPerSecond = 50; // 1秒間の最大パケット数
+    private static volatile int maxScoreboardUpdatesPerSecond = 30; // スコアボード更新の最大回数
+
     // 基準値
-    private static final int BASE_MAX_PACKETS_PER_SECOND = 200;
-    private static final int BASE_MAX_SCOREBOARD_UPDATES_PER_SECOND = 100;
+    private static final int BASE_MAX_PACKETS_PER_SECOND = 50;
+    private static final int BASE_MAX_SCOREBOARD_UPDATES_PER_SECOND = 30;
     
     // パケットカウンター内部クラス
     private static class PacketCounter {

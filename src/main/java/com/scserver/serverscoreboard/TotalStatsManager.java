@@ -8,7 +8,6 @@ import java.util.Collection;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.stat.Stat;
-import net.minecraft.stat.StatType;
 import net.minecraft.stat.Stats;
 import net.minecraft.text.Text;
 import net.minecraft.registry.Registries;
@@ -22,241 +21,95 @@ import net.minecraft.util.Identifier;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 
 public class TotalStatsManager {
     private static final String TOTAL_PREFIX = "total_";
     private static final String TOTAL_DISPLAY_PREFIX = "Total ";
-    
+
     private static MinecraftServer server;
     private static final Map<String, TotalStatConfig> totalStats = new ConcurrentHashMap<>();
     private static final Map<String, Integer> cachedTotals = new ConcurrentHashMap<>();
-    private static final Set<String> enabledStats = new HashSet<>();
+    private static final Set<String> enabledStats = ConcurrentHashMap.newKeySet();
     private static int updateCounter = 0;
     private static final Map<String, Map<String, Integer>> lastPlayerStats = new ConcurrentHashMap<>();
-    private static final Set<String> excludedPlayers = new HashSet<>();
-    
+    private static final Set<String> excludedPlayers = ConcurrentHashMap.newKeySet();
+
     // 遅延更新システム
     private static final Queue<Integer> pendingUpdates = new LinkedList<>();
     private static int currentTick = 0;
+
+    // レジストリキャッシュ（起動時に一度だけ初期化）
+    private static Set<Block> allBlocksCache = null;
+    private static Set<Item> blockItemsCache = null;
+
+    // 正規表現のプリコンパイル（パフォーマンス最適化）
+    private static final Pattern FAKE_PLAYER_PATTERN = Pattern.compile("fake[_\\-].*");
     
-    // Common statistics
+    // Common statistics - 指定された統計のみ
     public static final Map<String, String> COMMON_STATS = new HashMap<>();
     static {
-        // 基本統計
         COMMON_STATS.put("mined", "Blocks Mined");
         COMMON_STATS.put("placed", "Blocks Placed");
-        COMMON_STATS.put("killed", "Mobs Killed");
-        COMMON_STATS.put("deaths", "Deaths");
-        COMMON_STATS.put("damage_dealt", "Damage Dealt");
-        COMMON_STATS.put("damage_taken", "Damage Taken");
-        COMMON_STATS.put("play_time", "Play Time");
-        
-        // 移動系統計
-        COMMON_STATS.put("walk_one_cm", "Distance Walked");
-        COMMON_STATS.put("sprint_one_cm", "Distance Sprinted");
-        COMMON_STATS.put("swim_one_cm", "Distance Swum");
-        COMMON_STATS.put("fall_one_cm", "Distance Fallen");
-        COMMON_STATS.put("climb_one_cm", "Distance Climbed");
-        COMMON_STATS.put("fly_one_cm", "Distance Flown");
-        
-        // アクション系統計
-        COMMON_STATS.put("jump", "Times Jumped");
-        COMMON_STATS.put("drop", "Items Dropped");
-        COMMON_STATS.put("fish_caught", "Fish Caught");
-        COMMON_STATS.put("animals_bred", "Animals Bred");
-        COMMON_STATS.put("leave_game", "Times Left Game");
-        COMMON_STATS.put("sleep_in_bed", "Times Slept");
-        COMMON_STATS.put("enchant_item", "Items Enchanted");
-        
-        // ブロック操作系統計
-        COMMON_STATS.put("pot_flower", "Flowers Potted");
-        COMMON_STATS.put("trigger_trapped_chest", "Trapped Chests Triggered");
-        COMMON_STATS.put("open_enderchest", "Ender Chests Opened");
-        COMMON_STATS.put("open_chest", "Chests Opened");
-        COMMON_STATS.put("open_barrel", "Barrels Opened");
-        COMMON_STATS.put("open_shulker_box", "Shulker Boxes Opened");
-        
-        // 作業台系統計
-        COMMON_STATS.put("interact_with_anvil", "Anvils Used");
-        COMMON_STATS.put("interact_with_brewingstand", "Brewing Stands Used");
-        COMMON_STATS.put("interact_with_beacon", "Beacons Used");
-        COMMON_STATS.put("interact_with_crafting_table", "Crafting Tables Used");
-        COMMON_STATS.put("interact_with_furnace", "Furnaces Used");
-        COMMON_STATS.put("interact_with_blast_furnace", "Blast Furnaces Used");
-        COMMON_STATS.put("interact_with_smoker", "Smokers Used");
-        COMMON_STATS.put("interact_with_campfire", "Campfires Used");
-        COMMON_STATS.put("interact_with_cartography_table", "Cartography Tables Used");
-        COMMON_STATS.put("interact_with_loom", "Looms Used");
-        COMMON_STATS.put("interact_with_stonecutter", "Stonecutters Used");
-        COMMON_STATS.put("interact_with_smithing_table", "Smithing Tables Used");
-        COMMON_STATS.put("interact_with_grindstone", "Grindstones Used");
-        COMMON_STATS.put("interact_with_lectern", "Lecterns Used");
-        
-        // その他の統計
-        COMMON_STATS.put("bell_ring", "Bells Rung");
-        COMMON_STATS.put("raid_trigger", "Raids Triggered");
-        COMMON_STATS.put("raid_win", "Raids Won");
-        COMMON_STATS.put("talked_to_villager", "Villager Interactions");
-        COMMON_STATS.put("traded_with_villager", "Villager Trades");
-        
-        // 特定ブロック用
+        COMMON_STATS.put("total_all_ores_mined", "Total All Ores Mined");
+        COMMON_STATS.put("coral_block_mined", "Coral Blocks Mined");
+        COMMON_STATS.put("glass_placed", "Stained Glass Placed");
+        COMMON_STATS.put("carved_pumpkin_placed", "Carved Pumpkins Placed");
         COMMON_STATS.put("placed_anvil", "Anvils Placed");
-        COMMON_STATS.put("mined_anvil", "Anvils Mined");
-        
-        
-        // 戦闘系統計
-        COMMON_STATS.put("mob_kills", "Mob Kills");
-        COMMON_STATS.put("player_kills", "Player Kills");
-        COMMON_STATS.put("damage_absorbed", "Damage Absorbed");
-        COMMON_STATS.put("damage_blocked_by_shield", "Damage Blocked");
-        COMMON_STATS.put("damage_resisted", "Damage Resisted");
-        COMMON_STATS.put("damage_dealt_absorbed", "Absorbed Damage Dealt");
-        COMMON_STATS.put("damage_dealt_resisted", "Resisted Damage Dealt");
-        
-        
-        // その他
-        COMMON_STATS.put("target_hit", "Targets Hit");
+        COMMON_STATS.put("traded_with_villager", "Villager Trades");
+        COMMON_STATS.put("deepslate_mined", "Deepslate Mined");
     }
     
     public static void init(MinecraftServer minecraftServer) {
         server = minecraftServer;
         ServerScoreboardLogger.info("TotalStatsManager initialized");
-        
+
+        // レジストリキャッシュを初期化（起動時に一度だけ）
+        initializeRegistryCaches();
+
         // デフォルトの統計を作成
         createDefaultTotalStats();
     }
+
+    private static void initializeRegistryCaches() {
+        if (allBlocksCache == null) {
+            allBlocksCache = new HashSet<>();
+            Registries.BLOCK.forEach(allBlocksCache::add);
+            ServerScoreboardLogger.info("Cached " + allBlocksCache.size() + " blocks for statistics");
+        }
+        if (blockItemsCache == null) {
+            blockItemsCache = new HashSet<>();
+            Registries.ITEM.forEach(item -> {
+                if (item instanceof BlockItem) {
+                    blockItemsCache.add(item);
+                }
+            });
+            ServerScoreboardLogger.info("Cached " + blockItemsCache.size() + " block items for statistics");
+        }
+    }
     
     private static void createDefaultTotalStats() {
-        // 基本統計を登録（すべて無効状態で開始）
+        // 指定された統計のみを登録
         registerTotalStat("mined", "Total Blocks Mined", "mined");
         registerTotalStat("placed", "Total Blocks Placed", "placed");
-        registerTotalStat("killed", "Total Mobs Killed", "killed");
-        registerTotalStat("deaths", "Total Deaths", "deaths");
-        registerTotalStat("damage_dealt", "Total Damage Dealt", "damage_dealt");
-        registerTotalStat("damage_taken", "Total Damage Taken", "damage_taken");
-        registerTotalStat("jump", "Total Jumps", "jump");
-        registerTotalStat("drop", "Total Items Dropped", "drop");
-        registerTotalStat("fish_caught", "Total Fish Caught", "fish_caught");
-        registerTotalStat("animals_bred", "Total Animals Bred", "animals_bred");
-        registerTotalStat("leave_game", "Total Times Left Game", "leave_game");
-        registerTotalStat("sleep_in_bed", "Total Times Slept", "sleep_in_bed");
-        registerTotalStat("enchant_item", "Total Items Enchanted", "enchant_item");
-        registerTotalStat("pot_flower", "Total Flowers Potted", "pot_flower");
-        registerTotalStat("trigger_trapped_chest", "Total Trapped Chests Triggered", "trigger_trapped_chest");
-        registerTotalStat("open_enderchest", "Total Ender Chests Opened", "open_enderchest");
-        registerTotalStat("inspect_hopper", "Total Hoppers Inspected", "inspect_hopper");
-        registerTotalStat("inspect_dispenser", "Total Dispensers Inspected", "inspect_dispenser");
-        registerTotalStat("inspect_dropper", "Total Droppers Inspected", "inspect_dropper");
-        registerTotalStat("play_noteblock", "Total Note Blocks Played", "play_noteblock");
-        registerTotalStat("tune_noteblock", "Total Note Blocks Tuned", "tune_noteblock");
-        registerTotalStat("play_record", "Total Records Played", "play_record");
-        registerTotalStat("interact_with_brewingstand", "Total Brewing Stands Used", "interact_with_brewingstand");
-        registerTotalStat("interact_with_beacon", "Total Beacons Used", "interact_with_beacon");
-        registerTotalStat("interact_with_crafting_table", "Total Crafting Tables Used", "interact_with_crafting_table");
-        registerTotalStat("interact_with_furnace", "Total Furnaces Used", "interact_with_furnace");
-        registerTotalStat("interact_with_blast_furnace", "Total Blast Furnaces Used", "interact_with_blast_furnace");
-        registerTotalStat("interact_with_smoker", "Total Smokers Used", "interact_with_smoker");
-        registerTotalStat("interact_with_campfire", "Total Campfires Used", "interact_with_campfire");
-        registerTotalStat("interact_with_cartography_table", "Total Cartography Tables Used", "interact_with_cartography_table");
-        registerTotalStat("interact_with_loom", "Total Looms Used", "interact_with_loom");
-        registerTotalStat("interact_with_stonecutter", "Total Stonecutters Used", "interact_with_stonecutter");
-        registerTotalStat("interact_with_smithing_table", "Total Smithing Tables Used", "interact_with_smithing_table");
-        registerTotalStat("interact_with_grindstone", "Total Grindstones Used", "interact_with_grindstone");
-        registerTotalStat("interact_with_lectern", "Total Lecterns Used", "interact_with_lectern");
-        registerTotalStat("interact_with_anvil", "Total Anvils Used", "interact_with_anvil");
-        registerTotalStat("bell_ring", "Total Bells Rung", "bell_ring");
-        registerTotalStat("raid_trigger", "Total Raids Triggered", "raid_trigger");
-        registerTotalStat("raid_win", "Total Raids Won", "raid_win");
-        registerTotalStat("eat_cake_slice", "Total Cake Slices Eaten", "eat_cake_slice");
-        registerTotalStat("fill_cauldron", "Total Cauldrons Filled", "fill_cauldron");
-        registerTotalStat("use_cauldron", "Total Cauldrons Used", "use_cauldron");
-        registerTotalStat("clean_armor", "Total Armor Cleaned", "clean_armor");
-        registerTotalStat("clean_banner", "Total Banners Cleaned", "clean_banner");
-        registerTotalStat("clean_shulker_box", "Total Shulker Boxes Cleaned", "clean_shulker_box");
-        registerTotalStat("open_barrel", "Total Barrels Opened", "open_barrel");
-        registerTotalStat("open_chest", "Total Chests Opened", "open_chest");
-        registerTotalStat("open_shulker_box", "Total Shulker Boxes Opened", "open_shulker_box");
-        registerTotalStat("talked_to_villager", "Total Villager Interactions", "talked_to_villager");
-        registerTotalStat("traded_with_villager", "Total Villager Trades", "traded_with_villager");
-        
-        // 特定ブロックの詳細統計例（金床）
-        registerTotalStat("placed_anvil", "Total Anvils Placed", "placed_anvil");
-        registerTotalStat("mined_anvil", "Total Anvils Mined", "mined_anvil");
-        registerTotalStat("anvil_used", "Total Anvils Used", "interact_with_anvil");
-        
-        
-        // 戦闘・サバイバル系統計
-        registerTotalStat("mob_kills", "Total Mob Kills", "mob_kills");
-        registerTotalStat("player_kills", "Total Player Kills", "player_kills");
-        registerTotalStat("damage_absorbed", "Total Damage Absorbed", "damage_absorbed");
-        registerTotalStat("damage_blocked_by_shield", "Total Damage Blocked", "damage_blocked_by_shield");
-        registerTotalStat("damage_resisted", "Total Damage Resisted", "damage_resisted");
-        registerTotalStat("damage_dealt_absorbed", "Total Absorbed Damage Dealt", "damage_dealt_absorbed");
-        registerTotalStat("damage_dealt_resisted", "Total Resisted Damage Dealt", "damage_dealt_resisted");
-        
-        // クラフト・資源系統計
-        registerTotalStat("break_item", "Total Items Broken", "break_item");
-        registerTotalStat("craft_item", "Total Items Crafted", "craft_item");
-        registerTotalStat("use_item", "Total Items Used", "use_item");
-        registerTotalStat("pick_up_item", "Total Items Picked Up", "pick_up_item");
-        registerTotalStat("drop_item", "Total Items Dropped", "drop_item");
-        registerTotalStat("kill_entity", "Total Entities Killed", "kill_entity");
-        registerTotalStat("entity_killed_by", "Total Deaths by Entities", "entity_killed_by");
-        registerTotalStat("target_hit", "Total Targets Hit", "target_hit");
-        
-        
-        // ブロックグループ統計
-        registerTotalStat("wool_placed", "Total Wool Placed", "wool_placed");
-        registerTotalStat("wool_mined", "Total Wool Mined", "wool_mined");
-        registerTotalStat("concrete_placed", "Total Concrete Placed", "concrete_placed");
-        registerTotalStat("concrete_mined", "Total Concrete Mined", "concrete_mined");
-        registerTotalStat("concrete_powder_placed", "Total Concrete Powder Placed", "concrete_powder_placed");
-        registerTotalStat("concrete_powder_mined", "Total Concrete Powder Mined", "concrete_powder_mined");
-        registerTotalStat("terracotta_placed", "Total Terracotta Placed", "terracotta_placed");
-        registerTotalStat("terracotta_mined", "Total Terracotta Mined", "terracotta_mined");
-        registerTotalStat("glazed_terracotta_placed", "Total Glazed Terracotta Placed", "glazed_terracotta_placed");
-        registerTotalStat("glazed_terracotta_mined", "Total Glazed Terracotta Mined", "glazed_terracotta_mined");
-        registerTotalStat("glass_placed", "Total Glass Placed", "glass_placed");
-        registerTotalStat("glass_mined", "Total Glass Mined", "glass_mined");
-        registerTotalStat("glass_pane_placed", "Total Glass Panes Placed", "glass_pane_placed");
-        registerTotalStat("glass_pane_mined", "Total Glass Panes Mined", "glass_pane_mined");
-        registerTotalStat("coral_placed", "Total Coral Placed", "coral_placed");
-        registerTotalStat("coral_mined", "Total Coral Mined", "coral_mined");
-        registerTotalStat("coral_block_placed", "Total Coral Blocks Placed", "coral_block_placed");
+        registerTotalStat("total_all_ores_mined", "Total All Ores Mined", "total_all_ores_mined");
         registerTotalStat("coral_block_mined", "Total Coral Blocks Mined", "coral_block_mined");
-        registerTotalStat("bed_placed", "Total Beds Placed", "bed_placed");
-        registerTotalStat("bed_mined", "Total Beds Mined", "bed_mined");
-        registerTotalStat("banner_placed", "Total Banners Placed", "banner_placed");
-        registerTotalStat("banner_mined", "Total Banners Mined", "banner_mined");
-        registerTotalStat("shulker_box_placed", "Total Shulker Boxes Placed", "shulker_box_placed");
-        registerTotalStat("shulker_box_mined", "Total Shulker Boxes Mined", "shulker_box_mined");
-        registerTotalStat("candle_placed", "Total Candles Placed", "candle_placed");
-        registerTotalStat("candle_mined", "Total Candles Mined", "candle_mined");
-        registerTotalStat("carpet_placed", "Total Carpets Placed", "carpet_placed");
-        registerTotalStat("carpet_mined", "Total Carpets Mined", "carpet_mined");
-        registerTotalStat("wood_placed", "Total Wood Placed", "wood_placed");
-        registerTotalStat("wood_mined", "Total Wood Mined", "wood_mined");
-        registerTotalStat("planks_placed", "Total Planks Placed", "planks_placed");
-        registerTotalStat("planks_mined", "Total Planks Mined", "planks_mined");
-        registerTotalStat("log_placed", "Total Logs Placed", "log_placed");
-        registerTotalStat("log_mined", "Total Logs Mined", "log_mined");
-        registerTotalStat("leaves_placed", "Total Leaves Placed", "leaves_placed");
-        registerTotalStat("leaves_mined", "Total Leaves Mined", "leaves_mined");
-        registerTotalStat("sapling_placed", "Total Saplings Placed", "sapling_placed");
-        registerTotalStat("sapling_mined", "Total Saplings Mined", "sapling_mined");
-        registerTotalStat("flower_placed", "Total Flowers Placed", "flower_placed");
-        registerTotalStat("flower_mined", "Total Flowers Mined", "flower_mined");
-        registerTotalStat("ore_mined", "Total Ores Mined", "ore_mined");
-        registerTotalStat("deepslate_ore_mined", "Total Deepslate Ores Mined", "deepslate_ore_mined");
+        registerTotalStat("glass_placed", "Total Stained Glass Placed", "glass_placed");
+        registerTotalStat("carved_pumpkin_placed", "Total Carved Pumpkins Placed", "carved_pumpkin_placed");
+        registerTotalStat("placed_anvil", "Total Anvils Placed", "placed_anvil");
+        registerTotalStat("traded_with_villager", "Total Villager Trades", "traded_with_villager");
+        registerTotalStat("deepslate_mined", "Total Deepslate Mined", "deepslate_mined");
         
-        // 追加の統計タイプ
-        registerTotalStat("flower_potted", "Total Flowers Potted", "flower_potted");
-        registerTotalStat("item_enchanted", "Total Items Enchanted", "item_enchanted");
-        registerTotalStat("village_raid_hero", "Total Raid Hero Status", "village_raid_hero");
-        
-        
-        // デフォルトでは全て無効（必要に応じて有効化）
-        // enabledStats は空のままにしておく
+        // 登録した統計をすべて有効化
+        enabledStats.add("mined");
+        enabledStats.add("placed");
+        enabledStats.add("total_all_ores_mined");
+        enabledStats.add("coral_block_mined");
+        enabledStats.add("glass_placed");
+        enabledStats.add("carved_pumpkin_placed");
+        enabledStats.add("placed_anvil");
+        enabledStats.add("traded_with_villager");
+        enabledStats.add("deepslate_mined");
     }
     
     public static void registerTotalStat(String id, String displayName, String statType) {
@@ -375,6 +228,10 @@ public class TotalStatsManager {
             if (excludedPlayers.contains(playerName)) {
                 continue;
             }
+            // Fake Playerのスコア表示が無効化されている場合はスキップ
+            if (!ServerScoreboardConfig.FAKE_PLAYER_SCORE_ENABLED && isFakePlayer(playerName)) {
+                continue;
+            }
             
             int playerTotal = getPlayerStatTotal(player, config.statType);
             // 0でもキャッシュに保存（統計がリセットされた場合のため）
@@ -390,6 +247,10 @@ public class TotalStatsManager {
             String playerName = entry.getKey();
             // 除外リストに含まれているプレイヤーはスキップ
             if (excludedPlayers.contains(playerName)) {
+                continue;
+            }
+            // Fake Playerのスコア表示が無効化されている場合はスキップ
+            if (!ServerScoreboardConfig.FAKE_PLAYER_SCORE_ENABLED && isFakePlayer(playerName)) {
                 continue;
             }
             // オンラインプレイヤーのデータは既に含まれているのでスキップ
@@ -427,9 +288,6 @@ public class TotalStatsManager {
             totalScore.setScore(total);
             
             // デバッグログ: 合計スコアの変更
-            if (oldTotal != total) {
-                ServerScoreboardLogger.debugScoreChange("合計スコア更新", config.id, "$SERVER_TOTAL", oldTotal, total);
-            }
             
             for (Map.Entry<String, Integer> entry : playerStats.entrySet()) {
                 if (entry.getValue() > 0) { // 0の値は表示しない
@@ -437,69 +295,33 @@ public class TotalStatsManager {
                     int oldValue = score.getScore();
                     score.setScore(entry.getValue());
                     
-                    // デバッグログ: 個別スコアの変更
-                    if (oldValue != entry.getValue()) {
-                        ServerScoreboardLogger.debugScoreChange("スコア更新", config.id, entry.getKey(), oldValue, entry.getValue());
-                    }
                 }
             }
         }
         
         cachedTotals.put(config.id, total);
-        ServerScoreboardLogger.debug("Updated " + config.id + " - Total: " + total + ", Players: " + playerStats.size());
         
         // 統計スコアボードを表示しているプレイヤーに更新を送信
         ServerScoreboardManager.updateTotalStatsForWatchers();
     }
     
-    private static int calculateTotalForStat(TotalStatConfig config) {
-        int total = 0;
-        
-        // 全プレイヤーの統計を合計
-        for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
-            // 除外リストに含まれているプレイヤーはスキップ
-            if (excludedPlayers.contains(player.getName().getString())) {
-                continue;
-            }
-            total += getPlayerStatTotal(player, config.statType);
-        }
-        
-        return total;
-    }
-    
-    // プレイ時間をフォーマット（tick -> 日時分）
-    private static String formatPlayTime(int ticks) {
-        int totalSeconds = ticks / 20;
-        int days = totalSeconds / 86400;
-        int hours = (totalSeconds % 86400) / 3600;
-        int minutes = (totalSeconds % 3600) / 60;
-        
-        if (days > 0) {
-            return String.format("%dd %dh %dm", days, hours, minutes);
-        } else if (hours > 0) {
-            return String.format("%dh %dm", hours, minutes);
-        } else {
-            return String.format("%dm", minutes);
-        }
-    }
-    
-    // 時間をスコア値にエンコード（表示は日時分形式になるが、実際は分単位の値）
-    private static int encodeTimeAsScore(int ticks) {
-        int totalMinutes = ticks / 1200; // 20 ticks/秒 * 60秒 = 1200 ticks/分
-        return totalMinutes;
-    }
     
     
     public static int getPlayerStatTotal(ServerPlayerEntity player, String statType) {
         int total = 0;
-        
+
+        // キャッシュが未初期化の場合は初期化
+        if (allBlocksCache == null || blockItemsCache == null) {
+            initializeRegistryCaches();
+        }
+
         // 統計タイプに基づいて適切な値を取得
         switch (statType.toLowerCase()) {
             case "mined":
-                // 全ブロックの採掘数を合計
+                // 全ブロックの採掘数を合計（キャッシュを使用）
                 try {
-                    for (var block : Registries.BLOCK) {
-                        Stat<net.minecraft.block.Block> stat = Stats.MINED.getOrCreateStat(block);
+                    for (Block block : allBlocksCache) {
+                        Stat<Block> stat = Stats.MINED.getOrCreateStat(block);
                         total += player.getStatHandler().getStat(stat);
                     }
                 } catch (Exception e) {
@@ -508,30 +330,95 @@ public class TotalStatsManager {
                 break;
             case "placed":
             case "used":
-                // 全アイテムの使用数を合計（ブロック設置を含む）
+                // 全アイテムの使用数を合計（キャッシュを使用）
                 try {
-                    for (var item : Registries.ITEM) {
-                        if (item instanceof net.minecraft.item.BlockItem) {
-                            Stat<net.minecraft.item.Item> stat = Stats.USED.getOrCreateStat(item);
-                            total += player.getStatHandler().getStat(stat);
-                        }
-                    }
-                } catch (Exception e) {
-                    // エラーを無視
-                }
-                break;
-            case "killed":
-                // 全エンティティの撃破数を合計
-                try {
-                    for (var entityType : Registries.ENTITY_TYPE) {
-                        Stat<net.minecraft.entity.EntityType<?>> stat = Stats.KILLED.getOrCreateStat(entityType);
+                    for (Item item : blockItemsCache) {
+                        Stat<Item> stat = Stats.USED.getOrCreateStat(item);
                         total += player.getStatHandler().getStat(stat);
                     }
                 } catch (Exception e) {
                     // エラーを無視
                 }
                 break;
-            // 特定ブロックの統計
+            case "total_all_ores_mined":
+                // All ores mined (including regular, deepslate, nether, and ancient debris)
+                String[] allOres = {
+                    "coal_ore", "deepslate_coal_ore", "iron_ore", "deepslate_iron_ore",
+                    "copper_ore", "deepslate_copper_ore", "gold_ore", "deepslate_gold_ore",
+                    "redstone_ore", "deepslate_redstone_ore", "emerald_ore", "deepslate_emerald_ore",
+                    "lapis_ore", "deepslate_lapis_ore", "diamond_ore", "deepslate_diamond_ore",
+                    "nether_gold_ore", "nether_quartz_ore", "ancient_debris"
+                };
+                try {
+                    for (String oreName : allOres) {
+                        Block block = Registries.BLOCK.get(new Identifier("minecraft", oreName));
+                        if (block != null && block != Blocks.AIR) {
+                            total += player.getStatHandler().getStat(Stats.MINED.getOrCreateStat(block));
+                        }
+                    }
+                } catch (Exception e) {
+                    // エラーを無視
+                }
+                break;
+            case "deepslate_mined":
+                // Deepslate blocks mined (the stone itself, not the ores)
+                try {
+                    Block deepslateBlock = Registries.BLOCK.get(new Identifier("minecraft", "deepslate"));
+                    if (deepslateBlock != null && deepslateBlock != Blocks.AIR) {
+                        total = player.getStatHandler().getStat(Stats.MINED.getOrCreateStat(deepslateBlock));
+                    }
+                } catch (Exception e) {
+                    // エラーを無視
+                }
+                break;
+            case "coral_block_mined":
+                // Coral blocks mined
+                String[] coralBlocksForMining = {
+                    "tube_coral_block", "brain_coral_block", "bubble_coral_block", 
+                    "fire_coral_block", "horn_coral_block",
+                    "dead_tube_coral_block", "dead_brain_coral_block", "dead_bubble_coral_block", 
+                    "dead_fire_coral_block", "dead_horn_coral_block"
+                };
+                try {
+                    for (String blockName : coralBlocksForMining) {
+                        Block block = Registries.BLOCK.get(new Identifier("minecraft", blockName));
+                        if (block != null && block != Blocks.AIR) {
+                            total += player.getStatHandler().getStat(Stats.MINED.getOrCreateStat(block));
+                        }
+                    }
+                } catch (Exception e) {
+                    // エラーを無視
+                }
+                break;
+            case "glass_placed":
+                // Glass (including all stained glass) placed
+                String[] glassBlocks = {
+                    "glass", "white_stained_glass", "orange_stained_glass", "magenta_stained_glass", "light_blue_stained_glass",
+                    "yellow_stained_glass", "lime_stained_glass", "pink_stained_glass", "gray_stained_glass",
+                    "light_gray_stained_glass", "cyan_stained_glass", "purple_stained_glass", "blue_stained_glass",
+                    "brown_stained_glass", "green_stained_glass", "red_stained_glass", "black_stained_glass",
+                    "tinted_glass"
+                };
+                try {
+                    for (String blockName : glassBlocks) {
+                        Item item = Registries.ITEM.get(new Identifier("minecraft", blockName));
+                        if (item != null && item != Items.AIR && item instanceof BlockItem) {
+                            total += player.getStatHandler().getStat(Stats.USED.getOrCreateStat(item));
+                        }
+                    }
+                } catch (Exception e) {
+                    // エラーを無視
+                }
+                break;
+            case "carved_pumpkin_placed":
+                // Carved pumpkins placed
+                try {
+                    var carvedPumpkin = Items.CARVED_PUMPKIN;
+                    total = player.getStatHandler().getStat(Stats.USED.getOrCreateStat(carvedPumpkin));
+                } catch (Exception e) {
+                    // ignore lookup errors
+                }
+                break;
             case "placed_anvil":
                 try {
                     var anvil = Registries.ITEM.get(new net.minecraft.util.Identifier("minecraft", "anvil"));
@@ -540,577 +427,29 @@ public class TotalStatsManager {
                     }
                 } catch (Exception e) {}
                 break;
-            case "mined_anvil":
-                try {
-                    var anvilBlock = Registries.BLOCK.get(new net.minecraft.util.Identifier("minecraft", "anvil"));
-                    if (anvilBlock != null) {
-                        total = player.getStatHandler().getStat(Stats.MINED.getOrCreateStat(anvilBlock));
-                    }
-                } catch (Exception e) {}
-                break;
-            // カスタム統計
-            case "deaths":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.DEATHS));
-                break;
-            case "damage_dealt":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.DAMAGE_DEALT));
-                break;
-            case "damage_taken":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.DAMAGE_TAKEN));
-                break;
-            case "jump":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.JUMP));
-                break;
-            case "drop":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.DROP));
-                break;
-            case "fish_caught":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.FISH_CAUGHT));
-                break;
-            case "animals_bred":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.ANIMALS_BRED));
-                break;
-            case "leave_game":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.LEAVE_GAME));
-                break;
-            case "sleep_in_bed":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.SLEEP_IN_BED));
-                break;
-            case "enchant_item":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.ENCHANT_ITEM));
-                break;
-            case "pot_flower":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.POT_FLOWER));
-                break;
-            case "trigger_trapped_chest":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.TRIGGER_TRAPPED_CHEST));
-                break;
-            case "open_enderchest":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.OPEN_ENDERCHEST));
-                break;
-            case "open_chest":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.OPEN_CHEST));
-                break;
-            case "open_barrel":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.OPEN_BARREL));
-                break;
-            case "open_shulker_box":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.OPEN_SHULKER_BOX));
-                break;
-            case "interact_with_anvil":
-            case "anvil_used":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.INTERACT_WITH_ANVIL));
-                break;
-            case "interact_with_brewingstand":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.INTERACT_WITH_BREWINGSTAND));
-                break;
-            case "interact_with_beacon":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.INTERACT_WITH_BEACON));
-                break;
-            case "interact_with_crafting_table":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.INTERACT_WITH_CRAFTING_TABLE));
-                break;
-            case "interact_with_furnace":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.INTERACT_WITH_FURNACE));
-                break;
-            case "interact_with_blast_furnace":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.INTERACT_WITH_BLAST_FURNACE));
-                break;
-            case "interact_with_smoker":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.INTERACT_WITH_SMOKER));
-                break;
-            case "interact_with_campfire":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.INTERACT_WITH_CAMPFIRE));
-                break;
-            case "interact_with_cartography_table":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.INTERACT_WITH_CARTOGRAPHY_TABLE));
-                break;
-            case "interact_with_loom":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.INTERACT_WITH_LOOM));
-                break;
-            case "interact_with_stonecutter":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.INTERACT_WITH_STONECUTTER));
-                break;
-            case "interact_with_smithing_table":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.INTERACT_WITH_SMITHING_TABLE));
-                break;
-            case "interact_with_grindstone":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.INTERACT_WITH_GRINDSTONE));
-                break;
-            case "interact_with_lectern":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.INTERACT_WITH_LECTERN));
-                break;
-            case "bell_ring":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.BELL_RING));
-                break;
-            case "raid_trigger":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.RAID_TRIGGER));
-                break;
-            case "raid_win":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.RAID_WIN));
-                break;
-            case "talked_to_villager":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.TALKED_TO_VILLAGER));
-                break;
             case "traded_with_villager":
                 total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.TRADED_WITH_VILLAGER));
                 break;
-            // 戦闘系統計
-            case "mob_kills":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.MOB_KILLS));
-                break;
-            case "player_kills":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.PLAYER_KILLS));
-                break;
-            case "damage_absorbed":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.DAMAGE_ABSORBED));
-                break;
-            case "damage_blocked_by_shield":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.DAMAGE_BLOCKED_BY_SHIELD));
-                break;
-            case "damage_resisted":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.DAMAGE_RESISTED));
-                break;
-            case "damage_dealt_absorbed":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.DAMAGE_DEALT_ABSORBED));
-                break;
-            case "damage_dealt_resisted":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.DAMAGE_DEALT_RESISTED));
-                break;
-            // その他
-            case "target_hit":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.TARGET_HIT));
-                break;
-            case "clean_shulker_box":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.CLEAN_SHULKER_BOX));
-                break;
-            case "eat_cake_slice":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.EAT_CAKE_SLICE));
-                break;
-            case "fill_cauldron":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.FILL_CAULDRON));
-                break;
-            case "use_cauldron":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.USE_CAULDRON));
-                break;
-            case "clean_armor":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.CLEAN_ARMOR));
-                break;
-            case "clean_banner":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.CLEAN_BANNER));
-                break;
-            case "inspect_hopper":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.INSPECT_HOPPER));
-                break;
-            case "inspect_dispenser":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.INSPECT_DISPENSER));
-                break;
-            case "inspect_dropper":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.INSPECT_DROPPER));
-                break;
-            case "play_noteblock":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.PLAY_NOTEBLOCK));
-                break;
-            case "tune_noteblock":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.TUNE_NOTEBLOCK));
-                break;
-            case "play_record":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.PLAY_RECORD));
-                break;
-                
-            // ブロックグループ統計
-            case "wool_placed":
-                total = getBlockGroupTotal(player, "placed", "wool");
-                break;
-            case "wool_mined":
-                total = getBlockGroupTotal(player, "mined", "wool");
-                break;
-            case "concrete_placed":
-                total = getBlockGroupTotal(player, "placed", "concrete");
-                break;
-            case "concrete_mined":
-                total = getBlockGroupTotal(player, "mined", "concrete");
-                break;
-            case "concrete_powder_placed":
-                total = getBlockGroupTotal(player, "placed", "concrete_powder");
-                break;
-            case "concrete_powder_mined":
-                total = getBlockGroupTotal(player, "mined", "concrete_powder");
-                break;
-            case "terracotta_placed":
-                total = getBlockGroupTotal(player, "placed", "terracotta");
-                break;
-            case "terracotta_mined":
-                total = getBlockGroupTotal(player, "mined", "terracotta");
-                break;
-            case "glazed_terracotta_placed":
-                total = getBlockGroupTotal(player, "placed", "glazed_terracotta");
-                break;
-            case "glazed_terracotta_mined":
-                total = getBlockGroupTotal(player, "mined", "glazed_terracotta");
-                break;
-            case "glass_placed":
-                total = getBlockGroupTotal(player, "placed", "glass");
-                break;
-            case "glass_mined":
-                total = getBlockGroupTotal(player, "mined", "glass");
-                break;
-            case "glass_pane_placed":
-                total = getBlockGroupTotal(player, "placed", "glass_pane");
-                break;
-            case "glass_pane_mined":
-                total = getBlockGroupTotal(player, "mined", "glass_pane");
-                break;
-            case "coral_placed":
-                total = getBlockGroupTotal(player, "placed", "coral");
-                break;
-            case "coral_mined":
-                total = getBlockGroupTotal(player, "mined", "coral");
-                break;
-            case "bed_placed":
-                total = getBlockGroupTotal(player, "placed", "bed");
-                break;
-            case "bed_mined":
-                total = getBlockGroupTotal(player, "mined", "bed");
-                break;
-            case "banner_placed":
-                total = getBlockGroupTotal(player, "placed", "banner");
-                break;
-            case "banner_mined":
-                total = getBlockGroupTotal(player, "mined", "banner");
-                break;
-            case "shulker_box_placed":
-                total = getBlockGroupTotal(player, "placed", "shulker_box");
-                break;
-            case "shulker_box_mined":
-                total = getBlockGroupTotal(player, "mined", "shulker_box");
-                break;
-            case "candle_placed":
-                total = getBlockGroupTotal(player, "placed", "candle");
-                break;
-            case "candle_mined":
-                total = getBlockGroupTotal(player, "mined", "candle");
-                break;
-            case "carpet_placed":
-                total = getBlockGroupTotal(player, "placed", "carpet");
-                break;
-            case "carpet_mined":
-                total = getBlockGroupTotal(player, "mined", "carpet");
-                break;
-            case "wood_placed":
-                total = getBlockGroupTotal(player, "placed", "wood");
-                break;
-            case "wood_mined":
-                total = getBlockGroupTotal(player, "mined", "wood");
-                break;
-            case "planks_placed":
-                total = getBlockGroupTotal(player, "placed", "planks");
-                break;
-            case "planks_mined":
-                total = getBlockGroupTotal(player, "mined", "planks");
-                break;
-            case "ore_mined":
-                total = getBlockGroupTotal(player, "mined", "ore");
-                break;
-            case "deepslate_ore_mined":
-                total = getBlockGroupTotal(player, "mined", "deepslate_ore");
-                break;
-            case "log_placed":
-                total = getBlockGroupTotal(player, "placed", "log");
-                break;
-            case "log_mined":
-                total = getBlockGroupTotal(player, "mined", "log");
-                break;
-            case "leaves_placed":
-                total = getBlockGroupTotal(player, "placed", "leaves");
-                break;
-            case "leaves_mined":
-                total = getBlockGroupTotal(player, "mined", "leaves");
-                break;
-            case "sapling_placed":
-                total = getBlockGroupTotal(player, "placed", "sapling");
-                break;
-            case "sapling_mined":
-                total = getBlockGroupTotal(player, "mined", "sapling");
-                break;
-            case "flower_placed":
-                total = getBlockGroupTotal(player, "placed", "flower");
-                break;
-            case "flower_mined":
-                total = getBlockGroupTotal(player, "mined", "flower");
-                break;
-            case "coral_block_placed":
-                total = getBlockGroupTotal(player, "placed", "coral_block");
-                break;
-            case "coral_block_mined":
-                total = getBlockGroupTotal(player, "mined", "coral_block");
-                break;
-                
-            // 追加した統計タイプの処理
-            case "flower_potted":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.POT_FLOWER));
-                break;
-            case "item_enchanted":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.ENCHANT_ITEM));
-                break;
-            case "craft_item":
-                // 全アイテムのクラフト数を合計
-                try {
-                    for (var item : Registries.ITEM) {
-                        Stat<net.minecraft.item.Item> stat = Stats.CRAFTED.getOrCreateStat(item);
-                        total += player.getStatHandler().getStat(stat);
-                    }
-                } catch (Exception e) {
-                    // エラーを無視
-                }
-                break;
-            case "break_item":
-                // 全アイテムの破損数を合計
-                try {
-                    for (var item : Registries.ITEM) {
-                        Stat<net.minecraft.item.Item> stat = Stats.BROKEN.getOrCreateStat(item);
-                        total += player.getStatHandler().getStat(stat);
-                    }
-                } catch (Exception e) {
-                    // エラーを無視
-                }
-                break;
-            case "use_item":
-                // 全アイテムの使用数を合計
-                try {
-                    for (var item : Registries.ITEM) {
-                        Stat<net.minecraft.item.Item> stat = Stats.USED.getOrCreateStat(item);
-                        total += player.getStatHandler().getStat(stat);
-                    }
-                } catch (Exception e) {
-                    // エラーを無視
-                }
-                break;
-            case "pick_up_item":
-                // 全アイテムの拾得数を合計
-                try {
-                    for (var item : Registries.ITEM) {
-                        Stat<net.minecraft.item.Item> stat = Stats.PICKED_UP.getOrCreateStat(item);
-                        total += player.getStatHandler().getStat(stat);
-                    }
-                } catch (Exception e) {
-                    // エラーを無視
-                }
-                break;
-            case "drop_item":
-                // 全アイテムのドロップ数を合計
-                try {
-                    for (var item : Registries.ITEM) {
-                        Stat<net.minecraft.item.Item> stat = Stats.DROPPED.getOrCreateStat(item);
-                        total += player.getStatHandler().getStat(stat);
-                    }
-                } catch (Exception e) {
-                    // エラーを無視
-                }
-                break;
-            case "kill_entity":
-                // 全エンティティの撃破数を合計（killedと同じ）
-                try {
-                    for (var entityType : Registries.ENTITY_TYPE) {
-                        Stat<net.minecraft.entity.EntityType<?>> stat = Stats.KILLED.getOrCreateStat(entityType);
-                        total += player.getStatHandler().getStat(stat);
-                    }
-                } catch (Exception e) {
-                    // エラーを無視
-                }
-                break;
-            case "entity_killed_by":
-                // プレイヤーが各エンティティに倒された回数を合計
-                try {
-                    for (var entityType : Registries.ENTITY_TYPE) {
-                        Stat<net.minecraft.entity.EntityType<?>> stat = Stats.KILLED_BY.getOrCreateStat(entityType);
-                        total += player.getStatHandler().getStat(stat);
-                    }
-                } catch (Exception e) {
-                    // エラーを無視
-                }
-                break;
-            case "village_raid_hero":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.RAID_WIN));
-                break;
-                
-            // その他の統計も必要に応じて追加可能
         }
         
         return total;
     }
     
-    private static int getBlockGroupTotal(ServerPlayerEntity player, String action, String groupName) {
-        int total = 0;
-        
-        // 各グループのブロックリストを定義
-        String[] blocks = switch (groupName) {
-            case "wool" -> new String[] {
-                "white_wool", "orange_wool", "magenta_wool", "light_blue_wool",
-                "yellow_wool", "lime_wool", "pink_wool", "gray_wool",
-                "light_gray_wool", "cyan_wool", "purple_wool", "blue_wool",
-                "brown_wool", "green_wool", "red_wool", "black_wool"
-            };
-            case "concrete" -> new String[] {
-                "white_concrete", "orange_concrete", "magenta_concrete", "light_blue_concrete",
-                "yellow_concrete", "lime_concrete", "pink_concrete", "gray_concrete",
-                "light_gray_concrete", "cyan_concrete", "purple_concrete", "blue_concrete",
-                "brown_concrete", "green_concrete", "red_concrete", "black_concrete"
-            };
-            case "concrete_powder" -> new String[] {
-                "white_concrete_powder", "orange_concrete_powder", "magenta_concrete_powder", "light_blue_concrete_powder",
-                "yellow_concrete_powder", "lime_concrete_powder", "pink_concrete_powder", "gray_concrete_powder",
-                "light_gray_concrete_powder", "cyan_concrete_powder", "purple_concrete_powder", "blue_concrete_powder",
-                "brown_concrete_powder", "green_concrete_powder", "red_concrete_powder", "black_concrete_powder"
-            };
-            case "terracotta" -> new String[] {
-                "terracotta", "white_terracotta", "orange_terracotta", "magenta_terracotta", "light_blue_terracotta",
-                "yellow_terracotta", "lime_terracotta", "pink_terracotta", "gray_terracotta",
-                "light_gray_terracotta", "cyan_terracotta", "purple_terracotta", "blue_terracotta",
-                "brown_terracotta", "green_terracotta", "red_terracotta", "black_terracotta"
-            };
-            case "glazed_terracotta" -> new String[] {
-                "white_glazed_terracotta", "orange_glazed_terracotta", "magenta_glazed_terracotta", "light_blue_glazed_terracotta",
-                "yellow_glazed_terracotta", "lime_glazed_terracotta", "pink_glazed_terracotta", "gray_glazed_terracotta",
-                "light_gray_glazed_terracotta", "cyan_glazed_terracotta", "purple_glazed_terracotta", "blue_glazed_terracotta",
-                "brown_glazed_terracotta", "green_glazed_terracotta", "red_glazed_terracotta", "black_glazed_terracotta"
-            };
-            case "glass" -> new String[] {
-                "glass", "white_stained_glass", "orange_stained_glass", "magenta_stained_glass", "light_blue_stained_glass",
-                "yellow_stained_glass", "lime_stained_glass", "pink_stained_glass", "gray_stained_glass",
-                "light_gray_stained_glass", "cyan_stained_glass", "purple_stained_glass", "blue_stained_glass",
-                "brown_stained_glass", "green_stained_glass", "red_stained_glass", "black_stained_glass",
-                "tinted_glass"
-            };
-            case "glass_pane" -> new String[] {
-                "glass_pane", "white_stained_glass_pane", "orange_stained_glass_pane", "magenta_stained_glass_pane", 
-                "light_blue_stained_glass_pane", "yellow_stained_glass_pane", "lime_stained_glass_pane", "pink_stained_glass_pane",
-                "gray_stained_glass_pane", "light_gray_stained_glass_pane", "cyan_stained_glass_pane", "purple_stained_glass_pane",
-                "blue_stained_glass_pane", "brown_stained_glass_pane", "green_stained_glass_pane", "red_stained_glass_pane",
-                "black_stained_glass_pane"
-            };
-            case "coral" -> new String[] {
-                "tube_coral", "brain_coral", "bubble_coral", "fire_coral", "horn_coral",
-                "tube_coral_block", "brain_coral_block", "bubble_coral_block", "fire_coral_block", "horn_coral_block",
-                "dead_tube_coral", "dead_brain_coral", "dead_bubble_coral", "dead_fire_coral", "dead_horn_coral",
-                "dead_tube_coral_block", "dead_brain_coral_block", "dead_bubble_coral_block", "dead_fire_coral_block", "dead_horn_coral_block"
-            };
-            case "bed" -> new String[] {
-                "white_bed", "orange_bed", "magenta_bed", "light_blue_bed",
-                "yellow_bed", "lime_bed", "pink_bed", "gray_bed",
-                "light_gray_bed", "cyan_bed", "purple_bed", "blue_bed",
-                "brown_bed", "green_bed", "red_bed", "black_bed"
-            };
-            case "banner" -> new String[] {
-                "white_banner", "orange_banner", "magenta_banner", "light_blue_banner",
-                "yellow_banner", "lime_banner", "pink_banner", "gray_banner",
-                "light_gray_banner", "cyan_banner", "purple_banner", "blue_banner",
-                "brown_banner", "green_banner", "red_banner", "black_banner"
-            };
-            case "shulker_box" -> new String[] {
-                "shulker_box", "white_shulker_box", "orange_shulker_box", "magenta_shulker_box",
-                "light_blue_shulker_box", "yellow_shulker_box", "lime_shulker_box", "pink_shulker_box",
-                "gray_shulker_box", "light_gray_shulker_box", "cyan_shulker_box", "purple_shulker_box",
-                "blue_shulker_box", "brown_shulker_box", "green_shulker_box", "red_shulker_box", "black_shulker_box"
-            };
-            case "candle" -> new String[] {
-                "candle", "white_candle", "orange_candle", "magenta_candle", "light_blue_candle",
-                "yellow_candle", "lime_candle", "pink_candle", "gray_candle",
-                "light_gray_candle", "cyan_candle", "purple_candle", "blue_candle",
-                "brown_candle", "green_candle", "red_candle", "black_candle"
-            };
-            case "carpet" -> new String[] {
-                "white_carpet", "orange_carpet", "magenta_carpet", "light_blue_carpet",
-                "yellow_carpet", "lime_carpet", "pink_carpet", "gray_carpet",
-                "light_gray_carpet", "cyan_carpet", "purple_carpet", "blue_carpet",
-                "brown_carpet", "green_carpet", "red_carpet", "black_carpet", "moss_carpet"
-            };
-            case "wood" -> new String[] {
-                "oak_log", "spruce_log", "birch_log", "jungle_log", "acacia_log", "dark_oak_log",
-                "mangrove_log", "cherry_log", "oak_wood", "spruce_wood", "birch_wood", "jungle_wood",
-                "acacia_wood", "dark_oak_wood", "mangrove_wood", "cherry_wood",
-                "stripped_oak_log", "stripped_spruce_log", "stripped_birch_log", "stripped_jungle_log",
-                "stripped_acacia_log", "stripped_dark_oak_log", "stripped_mangrove_log", "stripped_cherry_log",
-                "stripped_oak_wood", "stripped_spruce_wood", "stripped_birch_wood", "stripped_jungle_wood",
-                "stripped_acacia_wood", "stripped_dark_oak_wood", "stripped_mangrove_wood", "stripped_cherry_wood"
-            };
-            case "planks" -> new String[] {
-                "oak_planks", "spruce_planks", "birch_planks", "jungle_planks",
-                "acacia_planks", "dark_oak_planks", "mangrove_planks", "cherry_planks",
-                "bamboo_planks", "crimson_planks", "warped_planks"
-            };
-            case "ore" -> new String[] {
-                "coal_ore", "deepslate_coal_ore", "iron_ore", "deepslate_iron_ore",
-                "copper_ore", "deepslate_copper_ore", "gold_ore", "deepslate_gold_ore",
-                "redstone_ore", "deepslate_redstone_ore", "emerald_ore", "deepslate_emerald_ore",
-                "lapis_ore", "deepslate_lapis_ore", "diamond_ore", "deepslate_diamond_ore",
-                "nether_gold_ore", "nether_quartz_ore", "ancient_debris"
-            };
-            case "deepslate_ore" -> new String[] {
-                "deepslate_coal_ore", "deepslate_iron_ore", "deepslate_copper_ore", 
-                "deepslate_gold_ore", "deepslate_redstone_ore", "deepslate_emerald_ore",
-                "deepslate_lapis_ore", "deepslate_diamond_ore"
-            };
-            case "coral_block" -> new String[] {
-                "tube_coral_block", "brain_coral_block", "bubble_coral_block", 
-                "fire_coral_block", "horn_coral_block",
-                "dead_tube_coral_block", "dead_brain_coral_block", "dead_bubble_coral_block", 
-                "dead_fire_coral_block", "dead_horn_coral_block"
-            };
-            case "log" -> new String[] {
-                "oak_log", "spruce_log", "birch_log", "jungle_log", "acacia_log", "dark_oak_log",
-                "mangrove_log", "cherry_log", "crimson_stem", "warped_stem",
-                "stripped_oak_log", "stripped_spruce_log", "stripped_birch_log", "stripped_jungle_log",
-                "stripped_acacia_log", "stripped_dark_oak_log", "stripped_mangrove_log", "stripped_cherry_log",
-                "stripped_crimson_stem", "stripped_warped_stem"
-            };
-            case "leaves" -> new String[] {
-                "oak_leaves", "spruce_leaves", "birch_leaves", "jungle_leaves", "acacia_leaves", 
-                "dark_oak_leaves", "mangrove_leaves", "cherry_leaves", "azalea_leaves", "flowering_azalea_leaves"
-            };
-            case "sapling" -> new String[] {
-                "oak_sapling", "spruce_sapling", "birch_sapling", "jungle_sapling", "acacia_sapling",
-                "dark_oak_sapling", "mangrove_propagule", "cherry_sapling", "azalea", "flowering_azalea"
-            };
-            case "flower" -> new String[] {
-                "dandelion", "poppy", "blue_orchid", "allium", "azure_bluet", "red_tulip",
-                "orange_tulip", "white_tulip", "pink_tulip", "oxeye_daisy", "cornflower",
-                "lily_of_the_valley", "wither_rose", "sunflower", "lilac", "rose_bush", "peony",
-                "torchflower", "pitcher_plant", "spore_blossom", "pink_petals"
-            };
-            default -> new String[0];
-        };
-        
-        // 各ブロックの統計を合計
-        try {
-            if (action.equals("placed")) {
-                // ブロック設置の場合はアイテムの使用統計を使用
-                for (String blockName : blocks) {
-                    Item item = Registries.ITEM.get(new Identifier("minecraft", blockName));
-                    if (item != null && item != Items.AIR && item instanceof BlockItem) {
-                        total += player.getStatHandler().getStat(Stats.USED.getOrCreateStat(item));
-                    }
-                }
-            } else if (action.equals("mined")) {
-                // ブロック破壊の場合はブロックの採掘統計を使用
-                for (String blockName : blocks) {
-                    Block block = Registries.BLOCK.get(new Identifier("minecraft", blockName));
-                    if (block != null && block != Blocks.AIR) {
-                        total += player.getStatHandler().getStat(Stats.MINED.getOrCreateStat(block));
-                    }
-                }
-            }
-        } catch (Exception e) {
-            ServerScoreboardLogger.error("Failed to get block group stats for " + groupName + " (" + action + ")", e);
-        }
-        
-        return total;
-    }
     
     public static List<String> getAllTotalObjectives() {
         List<String> objectives = new ArrayList<>();
         
         for (String id : totalStats.keySet()) {
+            objectives.add(TOTAL_PREFIX + id);
+        }
+        
+        return objectives;
+    }
+    
+    public static List<String> getEnabledTotalObjectives() {
+        List<String> objectives = new ArrayList<>();
+        
+        for (String id : enabledStats) {
             objectives.add(TOTAL_PREFIX + id);
         }
         
@@ -1153,21 +492,13 @@ public class TotalStatsManager {
             case "mined":
             case "placed":
             case "used":
-            case "killed":
-            case "deaths":
-            case "damage_dealt":
-            case "damage_taken":
-            case "play_time":
-            case "walk_one_cm":
-            case "jump":
-            case "fish_caught":
-            case "craft_item":
-            case "crafted":
-            case "deepslate_ore_mined":
-            case "coral_placed":
-            case "coral_mined":
-            case "coral_block_placed":
+            case "total_all_ores_mined":
             case "coral_block_mined":
+            case "glass_placed":
+            case "carved_pumpkin_placed":
+            case "placed_anvil":
+            case "traded_with_villager":
+            case "deepslate_mined":
                 return true;
             default:
                 // Check if it's a block group stat type
@@ -1251,5 +582,32 @@ public class TotalStatsManager {
     
     public static boolean isPlayerExcluded(String playerName) {
         return excludedPlayers.contains(playerName);
+    }
+    
+    public static boolean isFakePlayer(String playerName) {
+        // Carpetのfake playerやその他のbotプレイヤーを検出
+        // 一般的なfake playerの命名パターンをチェック
+        if (playerName == null || playerName.trim().isEmpty()) {
+            return false;
+        }
+
+        String lowerName = playerName.toLowerCase();
+
+        // Carpetのfake playerパターン
+        if (lowerName.contains("fake_") || lowerName.startsWith("fake")) {
+            return true;
+        }
+
+        // その他のbotやfake playerパターン
+        if (lowerName.contains("bot") || lowerName.contains("_bot") || lowerName.endsWith("bot")) {
+            return true;
+        }
+
+        // carpet modのfake playerは通常 fake_<プレイヤー名> の形式（プリコンパイル済みPatternを使用）
+        if (FAKE_PLAYER_PATTERN.matcher(lowerName).matches()) {
+            return true;
+        }
+
+        return false;
     }
 }

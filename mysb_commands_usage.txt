@@ -54,23 +54,14 @@
   使用例: /mysb total remove my_damage
 
 利用可能な統計タイプ（statType）:
-  - mined: ブロック採掘数
-  - placed: ブロック設置数
-  - killed: モブ討伐数
-  - deaths: 死亡回数
-  - damage_dealt: 与えたダメージ
-  - damage_taken: 受けたダメージ
-  - play_time: プレイ時間
-  - walk_one_cm: 歩いた距離
-  - sprint_one_cm: 走った距離
-  - swim_one_cm: 泳いだ距離
-  - fall_one_cm: 落下距離
-  - climb_one_cm: 登った距離
-  - fly_one_cm: 飛んだ距離
-  - jump: ジャンプ回数
-  - fish_caught: 釣った魚の数
-  - animals_bred: 繁殖させた動物数
-  - その他多数（コマンド実行時にサジェストされます）
+- Total Blocks Mined
+- Total Blocks Placed
+- Total Deepslate Mined
+- Total Coral Blocks Mined
+- Total Stained Glass Placed
+- Total Anvils Placed
+- Total Villager Trades
+- Total All Ores Mined
 
 ================================================================================
 3. 管理者コマンド（/mysb admin）
@@ -115,33 +106,6 @@
 /mysb admin stats list
   説明: 全ての統計とその有効/無効状態を表示します
   使用例: /mysb admin stats list
-
-================================================================================
-4. デバッグコマンド（/mysb debug）
-================================================================================
-
-権限: OP権限レベル2が必要
-
-/mysb debug
-  説明: デバッグモードを切り替えます（ON/OFF）
-  使用例: /mysb debug
-  
-/mysb debug on
-  説明: デバッグモードを有効にします
-  使用例: /mysb debug on
-  効果: 
-    - ブロック設置/破壊時の詳細ログを表示
-    - スコア変更時の詳細情報を表示
-    - デバッグメッセージはOP権限者にのみ送信（設定による）
-  
-/mysb debug off
-  説明: デバッグモードを無効にします
-  使用例: /mysb debug off
-
-デバッグモードで表示される情報:
-  - ブロック破壊: プレイヤー名、ブロック種類、座標
-  - ブロック使用: プレイヤー名、アイテム名、座標
-  - スコア更新: 統計名、プレイヤー名、旧値→新値、変化量
 
 ================================================================================
 6. 永続化される設定

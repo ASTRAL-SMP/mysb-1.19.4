@@ -118,9 +118,7 @@ public class CustomScoreboardPacketSender {
                     ));
                     objectiveCache.put(playerName, transformedScore);
                     updateCount++;
-                    ServerScoreboardLogger.debug("Updated transformed score: " + playerName + " = " + transformedScore + " (was: " + cachedScore + ")");
                 } else {
-                    ServerScoreboardLogger.debug("Skipped update due to rate limit: " + playerName);
                 }
             }
         }
@@ -139,9 +137,7 @@ public class CustomScoreboardPacketSender {
                     ));
                     objectiveCache.remove(cachedPlayerName);
                     removeCount++;
-                    ServerScoreboardLogger.debug("Removed transformed score: " + cachedPlayerName);
                 } else {
-                    ServerScoreboardLogger.debug("Skipped removal due to rate limit: " + cachedPlayerName);
                 }
             }
         }
@@ -200,7 +196,6 @@ public class CustomScoreboardPacketSender {
     // プレイヤーの変換済みスコアキャッシュをクリア
     public static void clearTransformedScoreCache(String playerUuid) {
         transformedScoreCache.remove(playerUuid);
-        ServerScoreboardLogger.debug("Cleared transformed score cache for player: " + playerUuid);
     }
     
     // 特定のオブジェクティブの変換済みキャッシュをクリア
@@ -208,7 +203,6 @@ public class CustomScoreboardPacketSender {
         for (Map<String, Map<String, Integer>> playerCache : transformedScoreCache.values()) {
             playerCache.remove(objectiveName);
         }
-        ServerScoreboardLogger.debug("Cleared transformed cache for objective: " + objectiveName);
     }
     
     // カスタムスコアボード機能（既存）
@@ -262,7 +256,6 @@ public class CustomScoreboardPacketSender {
                     entry.getValue()
                 ));
             } else {
-                ServerScoreboardLogger.debug("Skipped custom score due to rate limit: " + entry.getKey());
                 break; // レート制限に達したら停止
             }
         }

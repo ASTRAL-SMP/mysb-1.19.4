@@ -62,7 +62,6 @@ public class BulkUpdateManager {
                 // 履歴をクリア
                 history.clear();
                 
-                ServerScoreboardLogger.debug("Bulk update completed for player " + playerId);
             }
         }
     }
@@ -91,20 +90,4 @@ public class BulkUpdateManager {
         }
     }
     
-    // デバッグ情報を取得
-    public static String getDebugInfo() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("Bulk Update Manager Status:\n");
-        sb.append("Active players: ").append(playerUpdateHistory.size()).append("\n");
-        
-        for (Map.Entry<UUID, List<UpdateEvent>> entry : playerUpdateHistory.entrySet()) {
-            int count = getCurrentUpdateCount(entry.getKey());
-            if (count > 0) {
-                sb.append("Player ").append(entry.getKey().toString().substring(0, 8))
-                  .append(": ").append(count).append(" events\n");
-            }
-        }
-        
-        return sb.toString();
-    }
 }

@@ -54,7 +54,6 @@ public class ServerScoreboardManager {
         Path configDir = getConfigDirectory();
         try {
             Files.createDirectories(configDir);
-            ServerScoreboardLogger.debug("Config directory created/verified: " + configDir);
         } catch (IOException e) {
             ServerScoreboardLogger.error("Failed to create config directory", e);
         }
@@ -81,7 +80,6 @@ public class ServerScoreboardManager {
             if (scoreboardFile.exists()) {
                 NbtCompound nbt = NbtIo.readCompressed(scoreboardFile);
                 parseScoreboardData(nbt);
-                ServerScoreboardLogger.debug("Parsed vanilla scoreboard data");
             }
         } catch (IOException e) {
             ServerScoreboardLogger.error("Failed to load vanilla scoreboard data", e);
@@ -206,7 +204,6 @@ public class ServerScoreboardManager {
         
         // 既に同じオブジェクティブが設定されている場合はスキップ
         if (objectiveName.equals(data.getDisplayObjective())) {
-            ServerScoreboardLogger.debug("Objective '" + objectiveName + "' already set for player " + playerId);
             return;
         }
         
@@ -353,12 +350,6 @@ public class ServerScoreboardManager {
         }
     }
     
-    // 旧メソッド（後方互換性のため保持）
-    private static void sendScoreboardDisplayPacket(ServerPlayerEntity player, ScoreboardObjective objective) {
-        sendScoreboardDisplayPacketOnly(player, objective);
-    }
-    
-    // この関数は不要になったので削除
     
     private static void clearCustomObjectiveForPlayer(ServerPlayerEntity player) {
         try {
@@ -385,7 +376,6 @@ public class ServerScoreboardManager {
             if (customData != null && customData.isEnabled()) {
                 server.execute(() -> {
                     CustomScoreboardPacketSender.sendCustomScoreboard(player, customData);
-                    ServerScoreboardLogger.debug("Applied custom scoreboard for " + player.getName().getString());
                 });
             } else if (data != null && data.isEnabled() && !data.getDisplayObjective().isEmpty()) {
                 // 保存されている設定を適用
@@ -397,11 +387,9 @@ public class ServerScoreboardManager {
                         // 無視
                     }
                     updatePlayerScoreboard(player, data);
-                    ServerScoreboardLogger.debug("Applied saved scoreboard settings for " + player.getName().getString());
                 });
             } else {
                 // 設定がない場合は、サーバーのデフォルトをそのまま使用
-                ServerScoreboardLogger.debug("No saved scoreboard settings for " + player.getName().getString() + ", using server default");
             }
         } catch (Exception e) {
             ServerScoreboardLogger.error("Failed to initialize scoreboard for player " + player.getName().getString(), e);
@@ -412,7 +400,7 @@ public class ServerScoreboardManager {
         // プレイヤー切断時のクリーンアップ
         UUID playerId = player.getUuid();
         String playerName = player.getName().getString();
-        
+
         // プレイヤーの統計をキャッシュに保存
         if (!TotalStatsManager.isPlayerExcluded(playerName)) {
             Map<String, String> allStats = TotalStatsManager.getAllAvailableStats();
@@ -422,19 +410,19 @@ public class ServerScoreboardManager {
                     PlayerStatsCache.updatePlayerStats(playerName, statId, statValue);
                 }
             }
-            ServerScoreboardLogger.debug("Cached stats for player: " + playerName);
         }
-        
+
         // オブジェクティブの監視を停止
         clearPlayerWatchers(playerId);
-        
+
         // スコアボードキャッシュをクリア
         clearPlayerScoreboardCache(playerId);
-        
+
         // アクティブオブジェクティブ情報をクリア
         playerActiveObjectives.remove(playerId);
-        
-        // パケット制限を撤廃（リアルタイム更新のため）
+
+        // 表示キャッシュのクリーンアップ（設定データはサーバー停止時に保存するため残す）
+        lastScoreboardDisplay.remove(playerId);
     }
 
     // リアルタイム差分更新メソッド（毎tick実行）- 永続表示版
@@ -557,7 +545,7 @@ public class ServerScoreboardManager {
                 forceServerScoreboardSync(player);
             } else {
                 // デフォルトがない場合のみクリア
-                sendScoreboardDisplayPacket(player, null);
+                sendScoreboardDisplayPacketOnly(player, null);
             }
         }
         
@@ -707,8 +695,6 @@ public class ServerScoreboardManager {
                 if (autoTransformData != null) {
                     transformData.put(player.getUuid(), autoTransformData);
                     CustomScoreboardPacketSender.sendTransformedScoreboard(player, objectiveName, autoTransformData);
-                    ServerScoreboardLogger.debug("Applied auto-transform for objective " + objectiveName + 
-                        " to player " + player.getName().getString());
                 }
             }
         });
@@ -808,30 +794,7 @@ public class ServerScoreboardManager {
             }
         }
     }
-    
-    
-    // Discord用のフォーマット済みスコアボードデータを取得
-    public static String getFormattedScoreboardData(ScoreboardObjective objective) {
-        if (objective == null) return "データがありません";
-        
-        StringBuilder builder = new StringBuilder();
-        builder.append("【").append(objective.getDisplayName().getString()).append("】\n");
-        builder.append("─".repeat(30)).append("\n");
-        
-        // スコアを取得してソート
-        var scores = server.getScoreboard().getAllPlayerScores(objective);
-        scores.stream()
-            .sorted((a, b) -> Integer.compare(b.getScore(), a.getScore()))
-            .limit(15) // 上位15件まで
-            .forEach(score -> {
-                builder.append(String.format("% -16s %8d\n", 
-                    score.getPlayerName(), 
-                    score.getScore()));
-            });
-        
-        return builder.toString();
-    }
-    
+
     // 統計スコアボードを表示しているすべてのプレイヤーに更新を送信
     public static void updateTotalStatsForWatchers() {
         for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
@@ -856,8 +819,6 @@ public class ServerScoreboardManager {
                 // 差分スコアデータを送信
                 sendDifferentialScoreboardUpdate(player, objective);
             } else {
-                ServerScoreboardLogger.debug("Skipping update for player " + player.getName().getString() + 
-                    " - not displaying objective " + objective.getName());
             }
         }
     }
@@ -922,14 +883,7 @@ public class ServerScoreboardManager {
         
         // 通信量をデバッグ出力（10パケット以上の場合のみ）
         if (packetCount >= 10) {
-            ServerScoreboardLogger.debug("Minimal update: " + packetCount + " score packets sent to " + player.getName().getString());
         }
-    }
-    
-    // 純粋な差分更新のみ（通信量最小化版）
-    private static void sendDifferentialScoreboardUpdateOnly(ServerPlayerEntity player, ScoreboardObjective objective) {
-        // 最小限のスコア更新を実行（バニラスコアボードと同じ動作）
-        sendMinimalScoreUpdate(player, objective, false);
     }
     
     // 差分スコアボード更新を送信（パケット数削減）
@@ -942,8 +896,6 @@ public class ServerScoreboardManager {
         String playerActiveObjective = playerActiveObjectives.get(playerId);
         if (playerActiveObjective == null || !playerActiveObjective.equals(objectiveName)) {
             // このプレイヤーは別のオブジェクティブを表示中、または何も表示していない
-            ServerScoreboardLogger.debug("Skipping update for player " + player.getName().getString() + 
-                " - not displaying objective " + objectiveName + " (displaying: " + playerActiveObjective + ")");
             return;
         }
         
@@ -1000,7 +952,6 @@ public class ServerScoreboardManager {
     public static void clearPlayerScoreboardCache(UUID playerId) {
         playerScoreboardCache.remove(playerId);
         playerActiveObjectives.remove(playerId);
-        ServerScoreboardLogger.debug("Cleared scoreboard cache for player: " + playerId);
     }
     
     // 特定のオブジェクティブのキャッシュをクリア
@@ -1008,7 +959,6 @@ public class ServerScoreboardManager {
         for (Map<String, Map<String, Integer>> playerCache : playerScoreboardCache.values()) {
             playerCache.remove(objectiveName);
         }
-        ServerScoreboardLogger.debug("Cleared cache for objective: " + objectiveName);
     }
     
     private static void loadTotalStatsConfig(Path configDir) {
@@ -1097,7 +1047,6 @@ public class ServerScoreboardManager {
             if (objective != null) {
                 // サイドバー表示を再送信
                 player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardDisplayS2CPacket(1, objective));
-                ServerScoreboardLogger.debug("Refreshed scoreboard display for player: " + player.getName().getString());
             } else {
                 // オブジェクトが存在しない場合は再設定を試行
                 PlayerScoreboardData data = playerData.get(player.getUuid());
