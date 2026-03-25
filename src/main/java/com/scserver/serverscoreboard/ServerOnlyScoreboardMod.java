@@ -149,8 +149,8 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
         // プレイヤー統計キャッシュを保存
         PlayerStatsCache.saveCache();
 
-        // Discord設定を保存
-        DiscordConfig.save();
+        // Discord設定を保存・スケジューラをシャットダウン
+        DiscordConfig.shutdown();
     }
 
     private void onPlayerJoin(net.minecraft.server.network.ServerPlayNetworkHandler handler, net.fabricmc.fabric.api.networking.v1.PacketSender sender, MinecraftServer server) {

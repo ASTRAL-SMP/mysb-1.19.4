@@ -22,6 +22,10 @@ public class DiscordManager {
     private static final String DISCORD_API_BASE = "https://discord.com/api/v10";
     private static final Gson gson = new Gson();
 
+    private static final int MAX_RETRIES = 3;
+    private static final int REQUEST_INTERVAL_MS = 300; // リクエスト間の最低間隔（レート制限事前回避）
+    private static long lastRequestTime = 0;
+
     private static HttpClient httpClient;
     private static final AtomicBoolean initialized = new AtomicBoolean(false);
     private static final AtomicBoolean connectionVerified = new AtomicBoolean(false);
@@ -41,6 +45,54 @@ public class DiscordManager {
                 }
             }
         }
+    }
+
+    /**
+     * レート制限（HTTP 429）レスポンスを処理し、Retry-After時間だけ待機
+     * @return 待機完了して再試行すべきならtrue
+     */
+    private static boolean handleRateLimit(HttpResponse<String> response, int attempt) {
+        if (response.statusCode() != 429 || attempt >= MAX_RETRIES) {
+            return false;
+        }
+        try {
+            double retryAfterSeconds = 1.0;
+            var retryAfterHeader = response.headers().firstValue("Retry-After");
+            if (retryAfterHeader.isPresent()) {
+                retryAfterSeconds = Double.parseDouble(retryAfterHeader.get());
+            } else {
+                try {
+                    JsonObject json = JsonParser.parseString(response.body()).getAsJsonObject();
+                    if (json.has("retry_after")) {
+                        retryAfterSeconds = json.get("retry_after").getAsDouble();
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+            long waitMs = (long) (retryAfterSeconds * 1000) + 100;
+            waitMs = Math.min(waitMs, 10000);
+            ServerScoreboardLogger.warn("Discord rate limited, waiting " + waitMs + "ms (attempt " + (attempt + 1) + "/" + MAX_RETRIES + ")");
+            Thread.sleep(waitMs);
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
+    /**
+     * リクエスト間の最低間隔を確保（レート制限を事前回避）
+     */
+    private static synchronized void waitForInterval() {
+        long elapsed = System.currentTimeMillis() - lastRequestTime;
+        if (elapsed < REQUEST_INTERVAL_MS) {
+            try {
+                Thread.sleep(REQUEST_INTERVAL_MS - elapsed);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        lastRequestTime = System.currentTimeMillis();
     }
 
     /**
@@ -150,24 +202,31 @@ public class DiscordManager {
             try {
                 JsonObject requestBody = new JsonObject();
                 requestBody.addProperty("content", content);
+                String bodyStr = gson.toJson(requestBody);
 
-                HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(DISCORD_API_BASE + "/channels/" + channelId + "/messages"))
-                    .header("Authorization", "Bot " + token)
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(gson.toJson(requestBody)))
-                    .timeout(Duration.ofSeconds(30))
-                    .build();
+                for (int attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+                    waitForInterval();
 
-                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                    HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(DISCORD_API_BASE + "/channels/" + channelId + "/messages"))
+                        .header("Authorization", "Bot " + token)
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(bodyStr))
+                        .timeout(Duration.ofSeconds(30))
+                        .build();
 
-                if (response.statusCode() == 200 || response.statusCode() == 201) {
-                    JsonObject json = JsonParser.parseString(response.body()).getAsJsonObject();
-                    return json.get("id").getAsString();
-                } else {
-                    ServerScoreboardLogger.error("Failed to send message: HTTP " + response.statusCode() + " - " + response.body());
-                    return null;
+                    HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+                    if (response.statusCode() == 200 || response.statusCode() == 201) {
+                        JsonObject json = JsonParser.parseString(response.body()).getAsJsonObject();
+                        return json.get("id").getAsString();
+                    }
+                    if (!handleRateLimit(response, attempt)) {
+                        ServerScoreboardLogger.error("Failed to send message: HTTP " + response.statusCode() + " - " + response.body());
+                        return null;
+                    }
                 }
+                return null;
             } catch (Exception e) {
                 ServerScoreboardLogger.error("Error sending message", e);
                 return null;
@@ -190,23 +249,30 @@ public class DiscordManager {
             try {
                 JsonObject requestBody = new JsonObject();
                 requestBody.addProperty("content", newContent);
+                String bodyStr = gson.toJson(requestBody);
 
-                HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(DISCORD_API_BASE + "/channels/" + channelId + "/messages/" + messageId))
-                    .header("Authorization", "Bot " + token)
-                    .header("Content-Type", "application/json")
-                    .method("PATCH", HttpRequest.BodyPublishers.ofString(gson.toJson(requestBody)))
-                    .timeout(Duration.ofSeconds(30))
-                    .build();
+                for (int attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+                    waitForInterval();
 
-                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                    HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(DISCORD_API_BASE + "/channels/" + channelId + "/messages/" + messageId))
+                        .header("Authorization", "Bot " + token)
+                        .header("Content-Type", "application/json")
+                        .method("PATCH", HttpRequest.BodyPublishers.ofString(bodyStr))
+                        .timeout(Duration.ofSeconds(30))
+                        .build();
 
-                if (response.statusCode() == 200) {
-                    return true;
-                } else {
-                    ServerScoreboardLogger.error("Failed to edit message: HTTP " + response.statusCode() + " - " + response.body());
-                    return false;
+                    HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+                    if (response.statusCode() == 200) {
+                        return true;
+                    }
+                    if (!handleRateLimit(response, attempt)) {
+                        ServerScoreboardLogger.error("Failed to edit message: HTTP " + response.statusCode() + " - " + response.body());
+                        return false;
+                    }
                 }
+                return false;
             } catch (Exception e) {
                 ServerScoreboardLogger.error("Error editing message", e);
                 return false;
@@ -227,23 +293,29 @@ public class DiscordManager {
             ensureInitialized();
 
             try {
-                HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(DISCORD_API_BASE + "/channels/" + channelId + "/messages/" + messageId))
-                    .header("Authorization", "Bot " + token)
-                    .header("Content-Type", "application/json")
-                    .DELETE()
-                    .timeout(Duration.ofSeconds(30))
-                    .build();
+                for (int attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+                    waitForInterval();
 
-                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                    HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(DISCORD_API_BASE + "/channels/" + channelId + "/messages/" + messageId))
+                        .header("Authorization", "Bot " + token)
+                        .header("Content-Type", "application/json")
+                        .DELETE()
+                        .timeout(Duration.ofSeconds(30))
+                        .build();
 
-                // 204 = 削除成功, 404 = 既に存在しない（問題なし）
-                if (response.statusCode() == 204 || response.statusCode() == 404) {
-                    return true;
-                } else {
-                    ServerScoreboardLogger.error("Failed to delete message: HTTP " + response.statusCode() + " - " + response.body());
-                    return false;
+                    HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+                    // 204 = 削除成功, 404 = 既に存在しない（問題なし）
+                    if (response.statusCode() == 204 || response.statusCode() == 404) {
+                        return true;
+                    }
+                    if (!handleRateLimit(response, attempt)) {
+                        ServerScoreboardLogger.error("Failed to delete message: HTTP " + response.statusCode() + " - " + response.body());
+                        return false;
+                    }
                 }
+                return false;
             } catch (Exception e) {
                 ServerScoreboardLogger.error("Error deleting message", e);
                 return false;

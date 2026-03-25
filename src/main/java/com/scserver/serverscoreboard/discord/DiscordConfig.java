@@ -9,6 +9,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Discord設定の読み書きを管理するクラス
@@ -33,6 +36,13 @@ public class DiscordConfig {
     // Discord有効な統計のキャッシュ（これだけはSetで管理）
     private static final Set<String> discordEnabledStats = ConcurrentHashMap.newKeySet();
 
+    // 保存のスレッドセーフティ用ロック
+    private static final Object saveLock = new Object();
+
+    // 保存の合体（コアレシング）用
+    private static volatile boolean savePending = false;
+    private static ScheduledExecutorService saveExecutor;
+
     /**
      * 設定を初期化・読み込み
      */
@@ -43,6 +53,15 @@ public class DiscordConfig {
             Files.createDirectories(configDir);
 
             configPath = configDir.resolve(CONFIG_FILE);
+
+            // 保存スケジューラを初期化
+            if (saveExecutor == null || saveExecutor.isShutdown()) {
+                saveExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+                    Thread t = new Thread(r, "mysb-discord-config-save");
+                    t.setDaemon(true);
+                    return t;
+                });
+            }
 
             load();
             ServerScoreboardLogger.info("Discord config initialized: " + configPath);
@@ -105,31 +124,58 @@ public class DiscordConfig {
     }
 
     /**
-     * 設定ファイルを保存
+     * 設定ファイルを保存（コアレシング付き）
+     * 100ms以内の複数呼び出しは1回の書き込みにまとめられる
      */
     public static void save() {
         if (configPath == null) {
             return;
         }
+        if (!savePending && saveExecutor != null && !saveExecutor.isShutdown()) {
+            savePending = true;
+            saveExecutor.schedule(DiscordConfig::doSave, 100, TimeUnit.MILLISECONDS);
+        }
+    }
 
-        try {
-            // Discord有効な統計を保存
-            // 既存のDISCORD_ENABLED_プロパティをクリア
-            properties.stringPropertyNames().stream()
-                .filter(k -> k.startsWith(KEY_DISCORD_ENABLED_PREFIX))
-                .toList()
-                .forEach(properties::remove);
+    /**
+     * 実際のファイル書き込み処理（synchronized）
+     */
+    private static void doSave() {
+        savePending = false;
+        if (configPath == null) {
+            return;
+        }
+        synchronized (saveLock) {
+            try {
+                // Discord有効な統計を保存
+                // 既存のDISCORD_ENABLED_プロパティをクリア
+                properties.stringPropertyNames().stream()
+                    .filter(k -> k.startsWith(KEY_DISCORD_ENABLED_PREFIX))
+                    .toList()
+                    .forEach(properties::remove);
 
-            // 現在の状態を保存
-            for (String statId : discordEnabledStats) {
-                properties.setProperty(KEY_DISCORD_ENABLED_PREFIX + statId, "true");
+                // 現在の状態を保存
+                for (String statId : discordEnabledStats) {
+                    properties.setProperty(KEY_DISCORD_ENABLED_PREFIX + statId, "true");
+                }
+
+                try (OutputStream os = Files.newOutputStream(configPath)) {
+                    properties.store(os, "MySB Discord Configuration");
+                }
+            } catch (Exception e) {
+                ServerScoreboardLogger.error("Failed to save Discord config", e);
             }
+        }
+    }
 
-            try (OutputStream os = Files.newOutputStream(configPath)) {
-                properties.store(os, "MySB Discord Configuration");
-            }
-        } catch (Exception e) {
-            ServerScoreboardLogger.error("Failed to save Discord config", e);
+    /**
+     * 保存スケジューラをシャットダウン
+     * サーバー停止時に呼び出す
+     */
+    public static void shutdown() {
+        doSave(); // 未保存データをフラッシュ
+        if (saveExecutor != null && !saveExecutor.isShutdown()) {
+            saveExecutor.shutdown();
         }
     }
 

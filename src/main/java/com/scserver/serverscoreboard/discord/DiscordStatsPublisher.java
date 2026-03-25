@@ -44,14 +44,17 @@ public class DiscordStatsPublisher {
             return CompletableFuture.completedFuture(null);
         }
 
-        List<CompletableFuture<Void>> futures = new ArrayList<>();
-
-        for (String statId : enabledStats) {
-            futures.add(publishStat(statId));
-        }
-
-        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-            .thenRun(() -> ServerScoreboardLogger.info("Discord stats publishing completed"));
+        // 統計を順次処理してレート制限を回避
+        return CompletableFuture.runAsync(() -> {
+            for (String statId : enabledStats) {
+                try {
+                    publishStat(statId).join();
+                } catch (Exception e) {
+                    ServerScoreboardLogger.error("Error publishing stat to Discord: " + statId, e);
+                }
+            }
+            ServerScoreboardLogger.info("Discord stats publishing completed");
+        });
     }
 
     /**
@@ -131,7 +134,7 @@ public class DiscordStatsPublisher {
     }
 
     /**
-     * 既存のスレッドを更新
+     * 既存のスレッドを更新（ID保証 + 事後検証付き）
      */
     private static boolean updateExistingThread(String threadId, String messageId, List<String> messages, String statId) {
         try {
@@ -151,45 +154,67 @@ public class DiscordStatsPublisher {
             }
             DiscordConfig.setMessageId(statId, targetMessageId);
 
-            // 2. 続きメッセージを処理
-            List<String> existingContinuationIds = DiscordConfig.getContinuationMessageIds(statId);
-            List<String> newContinuationIds = new ArrayList<>();
-            int continuationCount = messages.size() - 1; // 最初のメッセージを除く
+            // 2. 続きメッセージを処理（ID保証付き）
+            List<String> existingIds = DiscordConfig.getContinuationMessageIds(statId);
+            List<String> newIds = new ArrayList<>();
+            int continuationCount = messages.size() - 1;
+            int successCount = 0;
 
             for (int i = 0; i < continuationCount; i++) {
-                String continuationContent = messages.get(i + 1);
+                String content = messages.get(i + 1);
 
-                if (i < existingContinuationIds.size()) {
-                    // 既存の続きメッセージを編集
-                    String contMsgId = existingContinuationIds.get(i);
-                    Boolean editSuccess = DiscordManager.editMessage(threadId, contMsgId, continuationContent).join();
+                if (i < existingIds.size()) {
+                    // 既存メッセージを編集
+                    String contId = existingIds.get(i);
+                    Boolean editSuccess = DiscordManager.editMessage(threadId, contId, content).join();
                     if (editSuccess) {
-                        newContinuationIds.add(contMsgId);
+                        newIds.add(contId);
+                        successCount++;
                     } else {
-                        // 編集失敗（削除された等）→新規送信
-                        String newId = DiscordManager.sendMessage(threadId, continuationContent).join();
+                        // 編集失敗 → 新規送信を試行
+                        String newId = DiscordManager.sendMessage(threadId, content).join();
                         if (newId != null) {
-                            newContinuationIds.add(newId);
+                            newIds.add(newId);
+                            successCount++;
+                        } else {
+                            // 両方失敗: 元のIDを保持（次回更新でリトライ）
+                            newIds.add(contId);
+                            ServerScoreboardLogger.warn(
+                                "Failed to update continuation " + (i + 1) + "/" + continuationCount
+                                + " for stat " + statId + ", will retry next cycle");
                         }
                     }
                 } else {
-                    // 新しい続きメッセージを送信（メッセージ数が増えた場合）
-                    String newId = DiscordManager.sendMessage(threadId, continuationContent).join();
+                    // 新しい続きメッセージを送信
+                    String newId = DiscordManager.sendMessage(threadId, content).join();
                     if (newId != null) {
-                        newContinuationIds.add(newId);
+                        newIds.add(newId);
+                        successCount++;
+                    } else {
+                        ServerScoreboardLogger.warn(
+                            "Failed to create continuation " + (i + 1) + "/" + continuationCount
+                            + " for stat " + statId + ", will retry next cycle");
                     }
                 }
             }
 
             // 3. 不要になった続きメッセージを削除（メッセージ数が減った場合）
-            for (int i = continuationCount; i < existingContinuationIds.size(); i++) {
-                DiscordManager.deleteMessage(threadId, existingContinuationIds.get(i)).join();
+            for (int i = continuationCount; i < existingIds.size(); i++) {
+                DiscordManager.deleteMessage(threadId, existingIds.get(i)).join();
             }
 
-            // 4. 続きメッセージIDを更新・保存
-            DiscordConfig.setContinuationMessageIds(statId, newContinuationIds);
+            // 4. 全IDを保存（必ず実行）
+            DiscordConfig.setContinuationMessageIds(statId, newIds);
 
-            ServerScoreboardLogger.info("Updated Discord message for stat: " + statId + " (" + messages.size() + " messages)");
+            // 5. 事後検証: 成功数をログ出力
+            if (successCount < continuationCount) {
+                ServerScoreboardLogger.warn("Stat " + statId + ": "
+                    + successCount + "/" + continuationCount
+                    + " continuation messages updated. Failed ones will retry next cycle.");
+            }
+
+            ServerScoreboardLogger.info("Updated Discord thread for stat: " + statId
+                + " (" + messages.size() + " messages, " + successCount + "/" + continuationCount + " continuations OK)");
             return true;
         } catch (Exception e) {
             ServerScoreboardLogger.error("Error updating existing thread", e);
