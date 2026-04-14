@@ -43,18 +43,35 @@ jobs:
           else
             TAG="${GITHUB_REF_NAME}"
           fi
-          VERSION="${TAG#v}"
+          # タグ形式: v<mod_ver>-mc<mc_ver>  (例: v2.3-mc1.21.4)
+          # 旧形式 v<mod_ver> (例: v2.3) との後方互換も維持
+          TAG_NO_V="${TAG#v}"
+          if [[ "$TAG_NO_V" == *-mc* ]]; then
+            VERSION="${TAG_NO_V%-mc*}"
+            MC_VERSION="${TAG_NO_V#*-mc}"
+          else
+            VERSION="$TAG_NO_V"
+            MC_VERSION=""
+          fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "mc_version=${MC_VERSION}" >> "$GITHUB_OUTPUT"
 
-      - name: Verify mod_version matches tag
+      - name: Verify mod_version and minecraft_version match tag
         run: |
           MOD_VERSION=$(grep -E '^mod_version=' gradle.properties | cut -d'=' -f2 | tr -d '[:space:]')
+          MC_VERSION=$(grep -E '^minecraft_version=' gradle.properties | cut -d'=' -f2 | tr -d '[:space:]')
           TAG_VERSION="${{ steps.tag.outputs.version }}"
+          TAG_MC="${{ steps.tag.outputs.mc_version }}"
           echo "mod_version in gradle.properties: ${MOD_VERSION}"
+          echo "minecraft_version in gradle.properties: ${MC_VERSION}"
           echo "tag version: ${TAG_VERSION}"
+          echo "tag mc: ${TAG_MC}"
           if [ "${MOD_VERSION}" != "${TAG_VERSION}" ]; then
             echo "::warning::gradle.properties の mod_version (${MOD_VERSION}) とタグ (${TAG_VERSION}) が一致していません"
+          fi
+          if [ -n "${TAG_MC}" ] && [ "${MC_VERSION}" != "${TAG_MC}" ]; then
+            echo "::warning::gradle.properties の minecraft_version (${MC_VERSION}) とタグの MC 部 (${TAG_MC}) が一致していません"
           fi
 
       - name: Build with Gradle
@@ -76,7 +93,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
-          name: MySB ${{ steps.tag.outputs.tag }}
+          name: ${{ steps.tag.outputs.mc_version && format('MySB v{0} (MC {1})', steps.tag.outputs.version, steps.tag.outputs.mc_version) || format('MySB {0}', steps.tag.outputs.tag) }}
           generate_release_notes: true
           draft: false
           prerelease: false
