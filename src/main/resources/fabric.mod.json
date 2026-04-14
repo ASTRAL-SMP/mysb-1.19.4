@@ -1,6 +1,6 @@
 {
 	"schemaVersion": 1,
-	"id": "serverscoreboard",
+	"id": "mysb",
 	"version": "${version}",
 	"name": "MySB - My Scoreboard",
 	"description": "サーバー専用スコアボード管理Mod - バニラクライアント対応、クライアント側インストール不要",
@@ -8,11 +8,11 @@
 		"Sim_256"
 	],
 	"license": "MIT",
-	"icon": "assets/serverscoreboard/icon.png",
+	"icon": "assets/mysb/icon.png",
 	"environment": "server",
 	"entrypoints": {
 		"server": [
-			"com.scserver.serverscoreboard.ServerOnlyScoreboardMod"
+			"com.astralsmp.mysb.ServerOnlyScoreboardMod"
 		]
 	},
 	"depends": {

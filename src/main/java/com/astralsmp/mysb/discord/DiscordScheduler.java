@@ -1,6 +1,6 @@
-package com.scserver.serverscoreboard.discord;
+package com.astralsmp.mysb.discord;
 
-import com.scserver.serverscoreboard.ServerScoreboardLogger;
+import com.astralsmp.mysb.ServerScoreboardLogger;
 import net.minecraft.server.MinecraftServer;
 
 import java.util.concurrent.CompletableFuture;
