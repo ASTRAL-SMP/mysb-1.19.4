@@ -6,7 +6,6 @@ import net.minecraft.stat.Stat;
 import net.minecraft.stat.StatType;
 import net.minecraft.stat.Stats;
 import net.minecraft.util.Identifier;
-import net.minecraft.registry.Registries;
 
 import java.io.*;
 import java.nio.file.Files;

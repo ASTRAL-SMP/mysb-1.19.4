@@ -188,7 +188,7 @@ public class ServerScoreboardAdminGUI implements GUIConstants {
         }
         
         @Override
-        public ItemStack quickMove(PlayerEntity player, int slot) {
+        public ItemStack transferSlot(PlayerEntity player, int slot) {
             return ItemStack.EMPTY;
         }
         
