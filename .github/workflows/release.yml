@@ -1,0 +1,83 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'リリースタグ (例: v2.1)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Resolve release tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          VERSION="${TAG#v}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify mod_version matches tag
+        run: |
+          MOD_VERSION=$(grep -E '^mod_version=' gradle.properties | cut -d'=' -f2 | tr -d '[:space:]')
+          TAG_VERSION="${{ steps.tag.outputs.version }}"
+          echo "mod_version in gradle.properties: ${MOD_VERSION}"
+          echo "tag version: ${TAG_VERSION}"
+          if [ "${MOD_VERSION}" != "${TAG_VERSION}" ]; then
+            echo "::warning::gradle.properties の mod_version (${MOD_VERSION}) とタグ (${TAG_VERSION}) が一致していません"
+          fi
+
+      - name: Build with Gradle
+        run: ./gradlew build --no-daemon
+
+      - name: Collect release artifacts
+        id: artifacts
+        run: |
+          mkdir -p release-artifacts
+          # メインJARのみを対象とし、sources/dev JARは除外
+          find build/libs -maxdepth 1 -type f -name '*.jar' \
+            ! -name '*-sources.jar' \
+            ! -name '*-dev.jar' \
+            -exec cp -v {} release-artifacts/ \;
+          echo "---"
+          ls -la release-artifacts/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: MySB ${{ steps.tag.outputs.tag }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          files: release-artifacts/*.jar
