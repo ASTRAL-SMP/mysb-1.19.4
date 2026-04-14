@@ -1,4 +1,4 @@
-package com.scserver.serverscoreboard;
+package com.astralsmp.mysb;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;

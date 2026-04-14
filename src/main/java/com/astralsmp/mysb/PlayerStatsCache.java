@@ -1,4 +1,4 @@
-package com.scserver.serverscoreboard;
+package com.astralsmp.mysb;
 
 import com.google.gson.*;
 import net.minecraft.server.MinecraftServer;
@@ -22,18 +22,46 @@ public class PlayerStatsCache {
     
     public static void initialize(MinecraftServer minecraftServer) {
         server = minecraftServer;
-        cacheFile = server.getSavePath(net.minecraft.util.WorldSavePath.ROOT)
-            .resolve("serverscoreboard")
-            .resolve("player_stats_cache.json");
-        
-        // ディレクトリを作成
+        Path worldRoot = server.getSavePath(net.minecraft.util.WorldSavePath.ROOT);
+        cacheFile = worldRoot.resolve("mysb").resolve("player_stats_cache.json");
+
         try {
             Files.createDirectories(cacheFile.getParent());
         } catch (IOException e) {
             ServerScoreboardLogger.error("Failed to create cache directory", e);
         }
-        
+
+        migrateLegacyCacheIfNeeded(worldRoot);
+
         loadCache();
+    }
+
+    // 旧パッケージ名時代の "serverscoreboard/" 配下キャッシュを新パスへ引き継ぐ。
+    // これがないと既存ワールドで累積統計が 0 リセットされて見える。
+    private static void migrateLegacyCacheIfNeeded(Path worldRoot) {
+        Path legacyCache = worldRoot.resolve("serverscoreboard").resolve("player_stats_cache.json");
+        if (!Files.exists(legacyCache)) {
+            return;
+        }
+        if (Files.exists(cacheFile)) {
+            ServerScoreboardLogger.warn("旧キャッシュ " + legacyCache + " を検出しましたが、新キャッシュが既に存在するため移行をスキップします");
+            return;
+        }
+        try {
+            Files.move(legacyCache, cacheFile);
+            ServerScoreboardLogger.info("旧キャッシュを " + legacyCache + " から " + cacheFile + " へ移行しました");
+            Path legacyDir = legacyCache.getParent();
+            try (var stream = Files.newDirectoryStream(legacyDir)) {
+                if (!stream.iterator().hasNext()) {
+                    Files.delete(legacyDir);
+                    ServerScoreboardLogger.info("空になった旧ディレクトリ " + legacyDir + " を削除しました");
+                }
+            } catch (IOException e) {
+                ServerScoreboardLogger.warn("旧ディレクトリのクリーンアップに失敗: " + e.getMessage());
+            }
+        } catch (IOException e) {
+            ServerScoreboardLogger.error("旧キャッシュの移行に失敗: " + legacyCache, e);
+        }
     }
     
     // プレイヤーの統計を更新

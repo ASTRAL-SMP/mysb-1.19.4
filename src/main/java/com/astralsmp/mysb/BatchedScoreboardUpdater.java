@@ -1,4 +1,4 @@
-package com.scserver.serverscoreboard;
+package com.astralsmp.mysb;
 
 import net.minecraft.network.packet.s2c.play.ScoreboardPlayerUpdateS2CPacket;
 import net.minecraft.scoreboard.ServerScoreboard;

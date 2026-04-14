@@ -1,15 +1,15 @@
-package com.scserver.serverscoreboard;
+package com.astralsmp.mysb;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
-import com.scserver.serverscoreboard.discord.DiscordConfig;
-import com.scserver.serverscoreboard.discord.DiscordManager;
-import com.scserver.serverscoreboard.discord.DiscordScheduler;
-import com.scserver.serverscoreboard.discord.DiscordSettingsGUI;
-import com.scserver.serverscoreboard.discord.DiscordStatsPublisher;
+import com.astralsmp.mysb.discord.DiscordConfig;
+import com.astralsmp.mysb.discord.DiscordManager;
+import com.astralsmp.mysb.discord.DiscordScheduler;
+import com.astralsmp.mysb.discord.DiscordSettingsGUI;
+import com.astralsmp.mysb.discord.DiscordStatsPublisher;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;

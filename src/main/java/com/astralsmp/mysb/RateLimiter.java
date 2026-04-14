@@ -1,4 +1,4 @@
-package com.scserver.serverscoreboard;
+package com.astralsmp.mysb;
 
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;

@@ -1,9 +1,9 @@
-package com.scserver.serverscoreboard;
+package com.astralsmp.mysb;
 
-import com.scserver.serverscoreboard.discord.DiscordBot;
-import com.scserver.serverscoreboard.discord.DiscordConfig;
-import com.scserver.serverscoreboard.discord.DiscordScheduler;
-import com.scserver.serverscoreboard.discord.DiscordStatsPublisher;
+import com.astralsmp.mysb.discord.DiscordBot;
+import com.astralsmp.mysb.discord.DiscordConfig;
+import com.astralsmp.mysb.discord.DiscordScheduler;
+import com.astralsmp.mysb.discord.DiscordStatsPublisher;
 import net.fabricmc.api.DedicatedServerModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;

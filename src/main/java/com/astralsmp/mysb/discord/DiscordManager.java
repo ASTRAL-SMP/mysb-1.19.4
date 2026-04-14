@@ -1,10 +1,10 @@
-package com.scserver.serverscoreboard.discord;
+package com.astralsmp.mysb.discord;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import com.scserver.serverscoreboard.ServerScoreboardLogger;
+import com.astralsmp.mysb.ServerScoreboardLogger;
 
 import java.net.URI;
 import java.net.http.HttpClient;

@@ -1,4 +1,4 @@
-package com.scserver.serverscoreboard;
+package com.astralsmp.mysb;
 
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;

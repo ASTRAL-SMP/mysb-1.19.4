@@ -1,4 +1,4 @@
-package com.scserver.serverscoreboard;
+package com.astralsmp.mysb;
 
 /**
  * GUI関連の定数を集約したインターフェース

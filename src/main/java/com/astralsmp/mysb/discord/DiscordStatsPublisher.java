@@ -1,8 +1,8 @@
-package com.scserver.serverscoreboard.discord;
+package com.astralsmp.mysb.discord;
 
-import com.scserver.serverscoreboard.PlayerStatsCache;
-import com.scserver.serverscoreboard.ServerScoreboardLogger;
-import com.scserver.serverscoreboard.TotalStatsManager;
+import com.astralsmp.mysb.PlayerStatsCache;
+import com.astralsmp.mysb.ServerScoreboardLogger;
+import com.astralsmp.mysb.TotalStatsManager;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 

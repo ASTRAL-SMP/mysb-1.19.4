@@ -1,4 +1,4 @@
-package com.scserver.serverscoreboard;
+package com.astralsmp.mysb;
 
 public class ServerScoreboardConfig {
     // セキュリティ設定

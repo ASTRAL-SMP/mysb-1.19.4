@@ -1,6 +1,6 @@
-package com.scserver.serverscoreboard.discord;
+package com.astralsmp.mysb.discord;
 
-import com.scserver.serverscoreboard.ServerScoreboardLogger;
+import com.astralsmp.mysb.ServerScoreboardLogger;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 

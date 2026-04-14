@@ -1,4 +1,4 @@
-package com.scserver.serverscoreboard;
+package com.astralsmp.mysb;
 
 import net.minecraft.nbt.NbtCompound;
 import java.util.*;

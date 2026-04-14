@@ -1,8 +1,8 @@
-package com.scserver.serverscoreboard.discord;
+package com.astralsmp.mysb.discord;
 
-import com.scserver.serverscoreboard.GUIConstants;
-import com.scserver.serverscoreboard.ServerScoreboardLogger;
-import com.scserver.serverscoreboard.TotalStatsManager;
+import com.astralsmp.mysb.GUIConstants;
+import com.astralsmp.mysb.ServerScoreboardLogger;
+import com.astralsmp.mysb.TotalStatsManager;
 import net.minecraft.enchantment.Enchantments;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.entity.player.PlayerInventory;

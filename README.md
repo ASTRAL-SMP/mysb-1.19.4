@@ -44,19 +44,28 @@ Installing on the client side will have no effect.
 
 ### コマンド (Commands)
 ```
-/mysb                    # スコアボード選択GUIを開く（プレイヤー用） / Open scoreboard selection GUI (for players)
-/mysb reload             # 設定再読み込み（OPレベル4限定） / Reload configuration (OP level 4 only)
-/mysb total list         # トータル統計の一覧表示（OP限定） / List total statistics (OP only)
-/mysb total update       # トータル統計を手動更新（OP限定） / Manually update total stats (OP only)
-/mysb total add <id> <displayName> <statType>  # カスタムトータル統計を追加（OP限定） / Add custom total stat (OP only)
-/mysb admin stats enable <stat>   # 統計を有効化（OPレベル3以上） / Enable a statistic (OP level 3+)
-/mysb admin stats disable <stat>  # 統計を無効化（OPレベル3以上） / Disable a statistic (OP level 3+)
+/mysb                             # スコアボード選択GUIを開く（プレイヤー用） / Open scoreboard selection GUI
+/mysb reload                      # 設定再読み込み（OPレベル4限定） / Reload configuration (OP4)
+/mysb version                     # バージョン表示 / Show version
+/mysb total list                  # トータル統計の一覧表示（OP限定） / List total statistics
+/mysb total update                # トータル統計を手動更新（OP限定） / Manually update total stats
+/mysb total add <id> <displayName> <statType>  # カスタムトータル統計を追加 / Add custom total stat
+/mysb total remove <id>           # カスタムトータル統計を削除 / Remove custom total stat
+/mysb admin gui                   # 管理者GUIを開く（OP3以上） / Open admin GUI (OP3+)
+/mysb admin stats enable <stat>   # 統計を有効化 / Enable a statistic
+/mysb admin stats disable <stat>  # 統計を無効化 / Disable a statistic
 /mysb admin stats list            # 統計の有効/無効状態を表示 / Show enabled/disabled stats
-/mysb admin gui             # 統計管理GUIを開く / Open statistics management GUI
-/mysb discord set-channel <フォーラムチャンネルID>  # Discord投稿先を設定 / Set Discord forum channel
-/mysb discord add <スコアボード名>  # スコアボードをDiscordに追加 / Add scoreboard to Discord
-/mysb discord remove <スコアボード名>  # スコアボードをDiscordから削除 / Remove from Discord
-/mysb discord list  # Discord連携中のスコアボード一覧 / List Discord-linked scoreboards
+/mysb admin exclude <player>      # プレイヤーを統計から除外 / Exclude player from stats
+/mysb admin include <player>      # 除外プレイヤーを戻す / Include excluded player
+/mysb admin fakeplayerscore enable|disable  # Carpet fake player 表示切替 / Toggle fake player display
+
+# Discord連携（独立コマンド、OP3以上） / Discord integration (standalone, OP3+)
+/mysbdiscord                      # Discord設定GUIを開く / Open Discord settings GUI
+/mysbdiscord channel <ID>         # フォーラムチャンネル設定 / Set Discord forum channel
+/mysbdiscord status               # 連携ステータス表示 / Show Discord integration status
+/mysbdiscord reconnect            # Bot再接続 / Reconnect Discord Bot
+/mysbdiscord test                 # テストメッセージ送信 / Send test message
+/mysbdiscord update               # 統計の強制更新 / Force update statistics
 ```
 
 #### 利用可能な統計タイプ (Available Stat Types)
@@ -99,13 +108,13 @@ Installing on the client side will have no effect.
 統計データをDiscordのフォーラムチャンネルに自動投稿する機能です。 / Automatically posts statistics to Discord forum channels.
 
 1. **Discord Botの設定** / **Discord Bot Setup**:
-    - `config/serverscoreboard/discord_bot.json` にBotトークンを設定 / Set bot token in config file
+    - `config/mysb/discord_config.properties` にBotトークンを設定 / Set bot token in config file
     - Botに必要な権限: メッセージ送信、スレッド作成、スラッシュコマンド / Required permissions: Send messages, Create threads, Slash commands
 
 2. **使用方法** / **Usage**:
-    - `/mysb discord set-channel <ID>` でフォーラムチャンネルを設定 / Set forum channel
-    - `/mysb discord add <スコアボード名>` で統計を追加 / Add statistics
-    - 毎朝5時に自動更新 / Updates automatically at 5 AM daily
+    - `/mysbdiscord channel <ID>` でフォーラムチャンネルを設定 / Set forum channel
+    - `/mysbdiscord` で設定GUIを開いて管理 / Open settings GUI
+    - 1時間ごとに統計を自動更新 / Statistics update automatically every hour
 
 ## 権限設定 (Permission Settings)
 `ServerScoreboardConfig.java` で以下の設定を変更できます：
