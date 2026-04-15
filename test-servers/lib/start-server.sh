@@ -40,6 +40,7 @@ fi
 # server.properties (初回のみ生成)
 if [ ! -f server.properties ]; then
   cat > server.properties <<EOF
+server-port=${PORT:-25565}
 online-mode=false
 max-players=5
 motd=MySB MC ${MC_VERSION} test server
