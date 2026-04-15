@@ -1,5 +1,6 @@
 package com.astralsmp.mysb;
 
+import net.minecraft.component.DataComponentTypes;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.inventory.Inventory;
@@ -48,17 +49,17 @@ public class ServerScoreboardGUIv2 implements GUIConstants {
         
         // Slot SLOT_SWITCH: Scoreboard button (compass icon)
         ItemStack scoreboardButton = new ItemStack(Items.COMPASS);
-        scoreboardButton.setCustomName(Text.literal("スコアボードを表示").formatted(Formatting.AQUA));
+        scoreboardButton.set(DataComponentTypes.CUSTOM_NAME, Text.literal("スコアボードを表示").formatted(Formatting.AQUA));
         inventory.setStack(SLOT_SWITCH, scoreboardButton);
 
         // Slot SLOT_RESET: Reset button
         ItemStack resetButton = new ItemStack(Items.BARRIER);
-        resetButton.setCustomName(Text.literal("デフォルトにリセット").formatted(Formatting.YELLOW));
+        resetButton.set(DataComponentTypes.CUSTOM_NAME, Text.literal("デフォルトにリセット").formatted(Formatting.YELLOW));
         inventory.setStack(SLOT_RESET, resetButton);
 
         // Slot SLOT_CLOSE: Close button
         ItemStack closeButton = new ItemStack(Items.REDSTONE);
-        closeButton.setCustomName(Text.literal("閉じる").formatted(Formatting.RED));
+        closeButton.set(DataComponentTypes.CUSTOM_NAME, Text.literal("閉じる").formatted(Formatting.RED));
         inventory.setStack(SLOT_CLOSE, closeButton);
         
         // Get only enabled total stats
@@ -74,13 +75,13 @@ public class ServerScoreboardGUIv2 implements GUIConstants {
         // Navigation
         if (page > 0) {
             ItemStack prevButton = new ItemStack(Items.ARROW);
-            prevButton.setCustomName(Text.literal("前のページ").formatted(Formatting.AQUA));
+            prevButton.set(DataComponentTypes.CUSTOM_NAME, Text.literal("前のページ").formatted(Formatting.AQUA));
             inventory.setStack(SLOT_PREV, prevButton);
         }
 
         if ((page + 1) * ITEMS_PER_PAGE < totalStats.size()) {
             ItemStack nextButton = new ItemStack(Items.ARROW);
-            nextButton.setCustomName(Text.literal("次のページ").formatted(Formatting.AQUA));
+            nextButton.set(DataComponentTypes.CUSTOM_NAME, Text.literal("次のページ").formatted(Formatting.AQUA));
             inventory.setStack(SLOT_NEXT, nextButton);
         }
 
@@ -92,14 +93,14 @@ public class ServerScoreboardGUIv2 implements GUIConstants {
             String statObjective = totalStats.get(i);
             ItemStack statItem = new ItemStack(Items.GOLDEN_APPLE);
             String displayName = TotalStatsManager.getTotalDisplayName(statObjective);
-            statItem.setCustomName(Text.literal(displayName).formatted(Formatting.GOLD, Formatting.BOLD));
+            statItem.set(DataComponentTypes.CUSTOM_NAME, Text.literal(displayName).formatted(Formatting.GOLD, Formatting.BOLD));
             inventory.setStack(SLOT_ITEMS_START + (i - startIndex), statItem);
         }
 
         // Fill empty slots
         for (int i = SLOT_ITEMS_START + (endIndex - startIndex); i < GUI_SIZE; i++) {
             ItemStack glassPane = new ItemStack(Items.GRAY_STAINED_GLASS_PANE);
-            glassPane.setCustomName(Text.literal(" "));
+            glassPane.set(DataComponentTypes.CUSTOM_NAME, Text.literal(" "));
             inventory.setStack(i, glassPane);
         }
     }
@@ -109,17 +110,17 @@ public class ServerScoreboardGUIv2 implements GUIConstants {
         
         // Slot SLOT_SWITCH: Statistics button (book icon)
         ItemStack statsButton = new ItemStack(Items.BOOK);
-        statsButton.setCustomName(Text.literal("統計を表示").formatted(Formatting.AQUA));
+        statsButton.set(DataComponentTypes.CUSTOM_NAME, Text.literal("統計を表示").formatted(Formatting.AQUA));
         inventory.setStack(SLOT_SWITCH, statsButton);
 
         // Slot SLOT_RESET: Reset button
         ItemStack resetButton = new ItemStack(Items.BARRIER);
-        resetButton.setCustomName(Text.literal("デフォルトにリセット").formatted(Formatting.YELLOW));
+        resetButton.set(DataComponentTypes.CUSTOM_NAME, Text.literal("デフォルトにリセット").formatted(Formatting.YELLOW));
         inventory.setStack(SLOT_RESET, resetButton);
 
         // Slot SLOT_CLOSE: Close button
         ItemStack closeButton = new ItemStack(Items.REDSTONE);
-        closeButton.setCustomName(Text.literal("閉じる").formatted(Formatting.RED));
+        closeButton.set(DataComponentTypes.CUSTOM_NAME, Text.literal("閉じる").formatted(Formatting.RED));
         inventory.setStack(SLOT_CLOSE, closeButton);
         
         // Get objectives list (excluding total stats)
@@ -128,13 +129,13 @@ public class ServerScoreboardGUIv2 implements GUIConstants {
         // Navigation
         if (page > 0) {
             ItemStack prevButton = new ItemStack(Items.ARROW);
-            prevButton.setCustomName(Text.literal("前のページ").formatted(Formatting.AQUA));
+            prevButton.set(DataComponentTypes.CUSTOM_NAME, Text.literal("前のページ").formatted(Formatting.AQUA));
             inventory.setStack(SLOT_PREV, prevButton);
         }
 
         if ((page + 1) * ITEMS_PER_PAGE < objectives.size()) {
             ItemStack nextButton = new ItemStack(Items.ARROW);
-            nextButton.setCustomName(Text.literal("次のページ").formatted(Formatting.AQUA));
+            nextButton.set(DataComponentTypes.CUSTOM_NAME, Text.literal("次のページ").formatted(Formatting.AQUA));
             inventory.setStack(SLOT_NEXT, nextButton);
         }
 
@@ -145,14 +146,14 @@ public class ServerScoreboardGUIv2 implements GUIConstants {
         for (int i = startIndex; i < endIndex; i++) {
             String objective = objectives.get(i);
             ItemStack objectiveItem = new ItemStack(Items.PAPER);
-            objectiveItem.setCustomName(Text.literal(objective).formatted(Formatting.WHITE));
+            objectiveItem.set(DataComponentTypes.CUSTOM_NAME, Text.literal(objective).formatted(Formatting.WHITE));
             inventory.setStack(SLOT_ITEMS_START + (i - startIndex), objectiveItem);
         }
 
         // Fill empty slots
         for (int i = SLOT_ITEMS_START + (endIndex - startIndex); i < GUI_SIZE; i++) {
             ItemStack glassPane = new ItemStack(Items.GRAY_STAINED_GLASS_PANE);
-            glassPane.setCustomName(Text.literal(" "));
+            glassPane.set(DataComponentTypes.CUSTOM_NAME, Text.literal(" "));
             inventory.setStack(i, glassPane);
         }
     }

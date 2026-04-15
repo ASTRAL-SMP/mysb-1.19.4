@@ -1,7 +1,7 @@
 package com.astralsmp.mysb;
 
-import net.minecraft.network.packet.s2c.play.ScoreboardPlayerUpdateS2CPacket;
-import net.minecraft.scoreboard.ServerScoreboard;
+import net.minecraft.network.packet.s2c.play.ScoreboardScoreResetS2CPacket;
+import net.minecraft.network.packet.s2c.play.ScoreboardScoreUpdateS2CPacket;
 import net.minecraft.server.network.ServerPlayerEntity;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -68,12 +68,20 @@ public class BatchedScoreboardUpdater {
         for (Map.Entry<String, PendingUpdate> entry : updates.entrySet()) {
             PendingUpdate update = entry.getValue();
             if (RateLimiter.canSendPacket(player.getUuid())) {
-                player.networkHandler.sendPacket(new ScoreboardPlayerUpdateS2CPacket(
-                    update.isRemoval ? ServerScoreboard.UpdateMode.REMOVE : ServerScoreboard.UpdateMode.CHANGE,
-                    update.objectiveName,
-                    update.playerName,
-                    update.score
-                ));
+                if (update.isRemoval) {
+                    player.networkHandler.sendPacket(new ScoreboardScoreResetS2CPacket(
+                        update.playerName,
+                        update.objectiveName
+                    ));
+                } else {
+                    player.networkHandler.sendPacket(new ScoreboardScoreUpdateS2CPacket(
+                        update.playerName,
+                        update.objectiveName,
+                        update.score,
+                        Optional.empty(),
+                        Optional.empty()
+                    ));
+                }
                 keysToRemove.add(entry.getKey());
                 sentCount++;
             } else {

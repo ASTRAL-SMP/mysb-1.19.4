@@ -22,6 +22,9 @@ import java.util.Set;
 import java.util.Map;
 
 public class ServerScoreboardCommands {
+    private static void sendFeedback(ServerCommandSource source, Text text, boolean broadcastToOps) {
+        source.sendFeedback(() -> text, broadcastToOps);
+    }
 
     public static void register(CommandDispatcher<ServerCommandSource> dispatcher) {
         // /mysb コマンド
@@ -173,7 +176,7 @@ public class ServerScoreboardCommands {
             
             ServerScoreboardManager.loadScoreboardData(context.getSource().getServer());
 
-            context.getSource().sendFeedback(
+            sendFeedback(context.getSource(), 
                     Text.literal("スコアボードデータを再読み込みしました"),
                     false
             );
@@ -194,7 +197,7 @@ public class ServerScoreboardCommands {
             
             TotalStatsManager.addCustomTotalStat(id, displayName, statType);
             
-            context.getSource().sendFeedback(
+            sendFeedback(context.getSource(), 
                 Text.literal("トータル統計「" + displayName + "」を追加しました"),
                 true
             );
@@ -212,14 +215,14 @@ public class ServerScoreboardCommands {
             var objectives = TotalStatsManager.getAllTotalObjectives();
             
             if (objectives.isEmpty()) {
-                context.getSource().sendFeedback(Text.literal("トータル統計が登録されていません"), false);
+                sendFeedback(context.getSource(), Text.literal("トータル統計が登録されていません"), false);
                 return 1;
             }
             
-            context.getSource().sendFeedback(Text.literal("=== トータル統計一覧 ==="), false);
+            sendFeedback(context.getSource(), Text.literal("=== トータル統計一覧 ==="), false);
             for (String objName : objectives) {
                 String displayName = TotalStatsManager.getTotalDisplayName(objName);
-                context.getSource().sendFeedback(
+                sendFeedback(context.getSource(), 
                     Text.literal("- " + objName + " (" + displayName + ")"),
                     false
                 );
@@ -237,7 +240,7 @@ public class ServerScoreboardCommands {
         try {
             TotalStatsManager.updateAllTotalStats();
             
-            context.getSource().sendFeedback(
+            sendFeedback(context.getSource(), 
                 Text.literal("全てのトータル統計を更新しました"),
                 true
             );
@@ -289,7 +292,7 @@ public class ServerScoreboardCommands {
             
             TotalStatsManager.enableStat(statId);
             
-            context.getSource().sendFeedback(
+            sendFeedback(context.getSource(), 
                 Text.literal("統計を有効化しました: " + statId),
                 true
             );
@@ -308,7 +311,7 @@ public class ServerScoreboardCommands {
             
             TotalStatsManager.disableStat(statId);
             
-            context.getSource().sendFeedback(
+            sendFeedback(context.getSource(), 
                 Text.literal("統計を無効化しました: " + statId),
                 true
             );
@@ -326,21 +329,21 @@ public class ServerScoreboardCommands {
             Map<String, String> allStats = TotalStatsManager.getAllAvailableStats();
             Set<String> enabledStats = TotalStatsManager.getEnabledStats();
             
-            context.getSource().sendFeedback(Text.literal("=== 統計の状態 ==="), false);
+            sendFeedback(context.getSource(), Text.literal("=== 統計の状態 ==="), false);
             
-            context.getSource().sendFeedback(Text.literal("有効:").formatted(Formatting.GREEN), false);
+            sendFeedback(context.getSource(), Text.literal("有効:").formatted(Formatting.GREEN), false);
             for (String statId : enabledStats) {
                 String displayName = allStats.getOrDefault(statId, statId);
-                context.getSource().sendFeedback(
+                sendFeedback(context.getSource(), 
                     Text.literal("  - " + statId + " (" + displayName + ")").formatted(Formatting.GREEN),
                     false
                 );
             }
             
-            context.getSource().sendFeedback(Text.literal("\n無効:").formatted(Formatting.RED), false);
+            sendFeedback(context.getSource(), Text.literal("\n無効:").formatted(Formatting.RED), false);
             for (Map.Entry<String, String> entry : allStats.entrySet()) {
                 if (!enabledStats.contains(entry.getKey())) {
-                    context.getSource().sendFeedback(
+                    sendFeedback(context.getSource(), 
                         Text.literal("  - " + entry.getKey() + " (" + entry.getValue() + ")").formatted(Formatting.RED),
                         false
                     );
@@ -356,24 +359,24 @@ public class ServerScoreboardCommands {
     }
     
     private static int showTotalHelp(CommandContext<ServerCommandSource> context) {
-        context.getSource().sendFeedback(Text.literal("=== トータル統計コマンドの使い方 ===").formatted(Formatting.GOLD), false);
-        context.getSource().sendFeedback(Text.literal(""), false);
-        context.getSource().sendFeedback(Text.literal("/mysb total add <id> <displayName> <statType>").formatted(Formatting.YELLOW), false);
-        context.getSource().sendFeedback(Text.literal("  新しいトータル統計を追加").formatted(Formatting.GRAY), false);
-        context.getSource().sendFeedback(Text.literal("  例: /mysb total add damage \"Total Damage Dealt\" damage_dealt").formatted(Formatting.DARK_GRAY), false);
-        context.getSource().sendFeedback(Text.literal(""), false);
-        context.getSource().sendFeedback(Text.literal("/mysb total list").formatted(Formatting.YELLOW), false);
-        context.getSource().sendFeedback(Text.literal("  登録されているトータル統計を一覧表示").formatted(Formatting.GRAY), false);
-        context.getSource().sendFeedback(Text.literal(""), false);
-        context.getSource().sendFeedback(Text.literal("/mysb total update").formatted(Formatting.YELLOW), false);
-        context.getSource().sendFeedback(Text.literal("  トータル統計を手動更新").formatted(Formatting.GRAY), false);
-        context.getSource().sendFeedback(Text.literal(""), false);
-        context.getSource().sendFeedback(Text.literal("/mysb total remove <id>").formatted(Formatting.YELLOW), false);
-        context.getSource().sendFeedback(Text.literal("  カスタムトータル統計を削除").formatted(Formatting.GRAY), false);
-        context.getSource().sendFeedback(Text.literal(""), false);
-        context.getSource().sendFeedback(Text.literal("利用可能な統計タイプ:").formatted(Formatting.AQUA), false);
-        context.getSource().sendFeedback(Text.literal("  mined, placed, killed, deaths, damage_dealt,").formatted(Formatting.DARK_AQUA), false);
-        context.getSource().sendFeedback(Text.literal("  damage_taken, play_time, walk_one_cm, jump, fish_caught").formatted(Formatting.DARK_AQUA), false);
+        sendFeedback(context.getSource(), Text.literal("=== トータル統計コマンドの使い方 ===").formatted(Formatting.GOLD), false);
+        sendFeedback(context.getSource(), Text.literal(""), false);
+        sendFeedback(context.getSource(), Text.literal("/mysb total add <id> <displayName> <statType>").formatted(Formatting.YELLOW), false);
+        sendFeedback(context.getSource(), Text.literal("  新しいトータル統計を追加").formatted(Formatting.GRAY), false);
+        sendFeedback(context.getSource(), Text.literal("  例: /mysb total add damage \"Total Damage Dealt\" damage_dealt").formatted(Formatting.DARK_GRAY), false);
+        sendFeedback(context.getSource(), Text.literal(""), false);
+        sendFeedback(context.getSource(), Text.literal("/mysb total list").formatted(Formatting.YELLOW), false);
+        sendFeedback(context.getSource(), Text.literal("  登録されているトータル統計を一覧表示").formatted(Formatting.GRAY), false);
+        sendFeedback(context.getSource(), Text.literal(""), false);
+        sendFeedback(context.getSource(), Text.literal("/mysb total update").formatted(Formatting.YELLOW), false);
+        sendFeedback(context.getSource(), Text.literal("  トータル統計を手動更新").formatted(Formatting.GRAY), false);
+        sendFeedback(context.getSource(), Text.literal(""), false);
+        sendFeedback(context.getSource(), Text.literal("/mysb total remove <id>").formatted(Formatting.YELLOW), false);
+        sendFeedback(context.getSource(), Text.literal("  カスタムトータル統計を削除").formatted(Formatting.GRAY), false);
+        sendFeedback(context.getSource(), Text.literal(""), false);
+        sendFeedback(context.getSource(), Text.literal("利用可能な統計タイプ:").formatted(Formatting.AQUA), false);
+        sendFeedback(context.getSource(), Text.literal("  mined, placed, killed, deaths, damage_dealt,").formatted(Formatting.DARK_AQUA), false);
+        sendFeedback(context.getSource(), Text.literal("  damage_taken, play_time, walk_one_cm, jump, fish_caught").formatted(Formatting.DARK_AQUA), false);
         return 1;
     }
     
@@ -411,7 +414,7 @@ public class ServerScoreboardCommands {
             
             TotalStatsManager.disableStat(id);
             
-            context.getSource().sendFeedback(
+            sendFeedback(context.getSource(), 
                 Text.literal("トータル統計「" + id + "」を削除しました"),
                 true
             );
@@ -435,7 +438,7 @@ public class ServerScoreboardCommands {
             
             TotalStatsManager.excludePlayer(playerName);
             
-            context.getSource().sendFeedback(
+            sendFeedback(context.getSource(), 
                 Text.literal("プレイヤー " + playerName + " を統計から除外しました"),
                 true
             );
@@ -459,7 +462,7 @@ public class ServerScoreboardCommands {
             
             TotalStatsManager.includePlayer(playerName);
             
-            context.getSource().sendFeedback(
+            sendFeedback(context.getSource(), 
                 Text.literal("プレイヤー " + playerName + " を統計に含めるようにしました"),
                 true
             );
@@ -477,13 +480,13 @@ public class ServerScoreboardCommands {
             Set<String> excludedPlayers = TotalStatsManager.getExcludedPlayers();
             
             if (excludedPlayers.isEmpty()) {
-                context.getSource().sendFeedback(Text.literal("除外されているプレイヤーはいません"), false);
+                sendFeedback(context.getSource(), Text.literal("除外されているプレイヤーはいません"), false);
                 return 1;
             }
             
-            context.getSource().sendFeedback(Text.literal("=== 除外されているプレイヤー ===").formatted(Formatting.GOLD), false);
+            sendFeedback(context.getSource(), Text.literal("=== 除外されているプレイヤー ===").formatted(Formatting.GOLD), false);
             for (String playerName : excludedPlayers) {
-                context.getSource().sendFeedback(
+                sendFeedback(context.getSource(), 
                     Text.literal("- " + playerName).formatted(Formatting.YELLOW),
                     false
                 );
@@ -515,7 +518,7 @@ public class ServerScoreboardCommands {
     }
     
     private static int showVersion(CommandContext<ServerCommandSource> context) {
-        context.getSource().sendFeedback(
+        sendFeedback(context.getSource(), 
             Text.literal("MySB - My Scoreboard").formatted(Formatting.GOLD)
                 .append(Text.literal(" Version: ").formatted(Formatting.GRAY))
                 .append(Text.literal(ServerOnlyScoreboardMod.getModVersion()).formatted(Formatting.AQUA)),
@@ -528,7 +531,7 @@ public class ServerScoreboardCommands {
         try {
             ServerScoreboardConfig.FAKE_PLAYER_SCORE_ENABLED = true;
             
-            context.getSource().sendFeedback(
+            sendFeedback(context.getSource(), 
                 Text.literal("Fake Player のスコア表示を有効にしました").formatted(Formatting.GREEN),
                 true
             );
@@ -545,7 +548,7 @@ public class ServerScoreboardCommands {
         try {
             ServerScoreboardConfig.FAKE_PLAYER_SCORE_ENABLED = false;
 
-            context.getSource().sendFeedback(
+            sendFeedback(context.getSource(), 
                 Text.literal("Fake Player のスコア表示を無効にしました").formatted(Formatting.YELLOW),
                 true
             );
@@ -595,7 +598,7 @@ public class ServerScoreboardCommands {
 
             DiscordConfig.setForumChannelId(channelId);
 
-            context.getSource().sendFeedback(
+            sendFeedback(context.getSource(), 
                 Text.literal("Discordフォーラムチャンネルを設定しました: " + channelId).formatted(Formatting.GREEN),
                 true
             );
@@ -612,11 +615,11 @@ public class ServerScoreboardCommands {
         try {
             ServerCommandSource source = context.getSource();
 
-            source.sendFeedback(Text.literal("=== Discord連携ステータス ===").formatted(Formatting.GOLD), false);
+            sendFeedback(source, Text.literal("=== Discord連携ステータス ===").formatted(Formatting.GOLD), false);
 
             // Token設定状態
             boolean hasToken = DiscordConfig.hasValidToken();
-            source.sendFeedback(
+            sendFeedback(source, 
                 Text.literal("Bot Token: ").formatted(Formatting.GRAY)
                     .append(Text.literal(hasToken ? "設定済み" : "未設定").formatted(hasToken ? Formatting.GREEN : Formatting.RED)),
                 false
@@ -624,7 +627,7 @@ public class ServerScoreboardCommands {
 
             // フォーラムチャンネル
             boolean hasChannel = DiscordConfig.hasForumChannelId();
-            source.sendFeedback(
+            sendFeedback(source, 
                 Text.literal("フォーラムチャンネル: ").formatted(Formatting.GRAY)
                     .append(Text.literal(hasChannel ? DiscordConfig.getForumChannelId() : "未設定")
                         .formatted(hasChannel ? Formatting.GREEN : Formatting.RED)),
@@ -633,7 +636,7 @@ public class ServerScoreboardCommands {
 
             // 接続状態
             boolean connected = DiscordManager.isConnectionVerified();
-            source.sendFeedback(
+            sendFeedback(source, 
                 Text.literal("接続状態: ").formatted(Formatting.GRAY)
                     .append(Text.literal(connected ? "接続中" : "未接続").formatted(connected ? Formatting.GREEN : Formatting.RED)),
                 false
@@ -641,7 +644,7 @@ public class ServerScoreboardCommands {
 
             // Discord有効統計
             Set<String> enabledStats = DiscordConfig.getDiscordEnabledStats();
-            source.sendFeedback(
+            sendFeedback(source, 
                 Text.literal("Discord有効統計: ").formatted(Formatting.GRAY)
                     .append(Text.literal(enabledStats.isEmpty() ? "なし" : String.join(", ", enabledStats))
                         .formatted(enabledStats.isEmpty() ? Formatting.YELLOW : Formatting.AQUA)),
@@ -650,7 +653,7 @@ public class ServerScoreboardCommands {
 
             // 次回更新
             if (connected && !enabledStats.isEmpty()) {
-                source.sendFeedback(
+                sendFeedback(source, 
                     Text.literal("次回更新まで: ").formatted(Formatting.GRAY)
                         .append(Text.literal(DiscordScheduler.getTimeUntilNextUpdateFormatted()).formatted(Formatting.AQUA)),
                     false
@@ -672,7 +675,7 @@ public class ServerScoreboardCommands {
                 return 0;
             }
 
-            context.getSource().sendFeedback(
+            sendFeedback(context.getSource(), 
                 Text.literal("Discord接続をテスト中...").formatted(Formatting.YELLOW),
                 false
             );
@@ -680,7 +683,7 @@ public class ServerScoreboardCommands {
             DiscordManager.resetConnection();
             DiscordManager.testConnection().thenAccept(success -> {
                 if (success) {
-                    context.getSource().sendFeedback(
+                    sendFeedback(context.getSource(), 
                         Text.literal("Discord接続に成功しました").formatted(Formatting.GREEN),
                         true
                     );
@@ -709,14 +712,14 @@ public class ServerScoreboardCommands {
                 return 0;
             }
 
-            context.getSource().sendFeedback(
+            sendFeedback(context.getSource(), 
                 Text.literal("テスト投稿を実行中...").formatted(Formatting.YELLOW),
                 false
             );
 
             DiscordStatsPublisher.testPublish().thenAccept(success -> {
                 if (success) {
-                    context.getSource().sendFeedback(
+                    sendFeedback(context.getSource(), 
                         Text.literal("テスト投稿に成功しました").formatted(Formatting.GREEN),
                         true
                     );
@@ -756,13 +759,13 @@ public class ServerScoreboardCommands {
                 return 0;
             }
 
-            context.getSource().sendFeedback(
+            sendFeedback(context.getSource(), 
                 Text.literal("Discord統計を更新中...").formatted(Formatting.YELLOW),
                 false
             );
 
             DiscordScheduler.forceUpdate().thenRun(() -> {
-                context.getSource().sendFeedback(
+                sendFeedback(context.getSource(), 
                     Text.literal("Discord統計の更新が完了しました").formatted(Formatting.GREEN),
                     true
                 );

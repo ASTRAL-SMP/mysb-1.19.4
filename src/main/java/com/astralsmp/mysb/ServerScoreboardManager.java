@@ -3,9 +3,14 @@ package com.astralsmp.mysb;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.nbt.NbtList;
+import net.minecraft.nbt.NbtSizeTracker;
 import net.minecraft.nbt.NbtString;
+import net.minecraft.network.packet.s2c.play.ScoreboardScoreResetS2CPacket;
+import net.minecraft.network.packet.s2c.play.ScoreboardScoreUpdateS2CPacket;
 import net.minecraft.scoreboard.Scoreboard;
 import net.minecraft.scoreboard.ScoreboardCriterion;
+import net.minecraft.scoreboard.ScoreboardDisplaySlot;
+import net.minecraft.scoreboard.ScoreboardEntry;
 import net.minecraft.scoreboard.ScoreboardObjective;
 import net.minecraft.scoreboard.ServerScoreboard;
 import net.minecraft.server.MinecraftServer;
@@ -17,7 +22,9 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.Optional;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -62,7 +69,7 @@ public class ServerScoreboardManager {
         File playerDataFile = configDir.resolve("player_scoreboards.dat").toFile();
         if (playerDataFile.exists()) {
             try {
-                NbtCompound nbt = NbtIo.readCompressed(playerDataFile);
+                NbtCompound nbt = NbtIo.readCompressed(playerDataFile.toPath(), NbtSizeTracker.ofUnlimitedBytes());
                 loadPlayerData(nbt);
             } catch (IOException e) {
                 ServerScoreboardLogger.error("Failed to load player scoreboard data", e);
@@ -78,7 +85,7 @@ public class ServerScoreboardManager {
             File scoreboardFile = server.getSavePath(WorldSavePath.ROOT)
                     .resolve("data/scoreboard.dat").toFile();
             if (scoreboardFile.exists()) {
-                NbtCompound nbt = NbtIo.readCompressed(scoreboardFile);
+                NbtCompound nbt = NbtIo.readCompressed(scoreboardFile.toPath(), NbtSizeTracker.ofUnlimitedBytes());
                 parseScoreboardData(nbt);
             }
         } catch (IOException e) {
@@ -179,7 +186,7 @@ public class ServerScoreboardManager {
         nbt.put("transformData", transforms);
 
         try {
-            NbtIo.writeCompressed(nbt, playerDataFile);
+            NbtIo.writeCompressed(nbt, playerDataFile.toPath());
         } catch (IOException e) {
             ServerScoreboardLogger.error("Failed to save player scoreboard data", e);
         }
@@ -281,7 +288,7 @@ public class ServerScoreboardManager {
         
         // 通常のスコアボード表示（パケットベース）
         Scoreboard scoreboard = server.getScoreboard();
-        ScoreboardObjective objective = scoreboard.getObjective(objectiveName);
+        ScoreboardObjective objective = scoreboard.getNullableObjective(objectiveName);
         
         if (objective != null) {
             // 前のオブジェクティブの監視を停止
@@ -327,7 +334,7 @@ public class ServerScoreboardManager {
                     player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardObjectiveUpdateS2CPacket(objective, 0));
                     
                     // 2. 永続的にサイドバー表示（消えないように）
-                    player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardDisplayS2CPacket(1, objective));
+                    player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardDisplayS2CPacket(ScoreboardDisplaySlot.SIDEBAR, objective));
                     
                     // 3. キャッシュをクリアして初期同期
                     Map<String, Map<String, Integer>> playerCache = playerScoreboardCache.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>());
@@ -343,7 +350,7 @@ public class ServerScoreboardManager {
                 // パケットのみでスコアボードをクリア
                 UUID playerId = player.getUuid();
                 playerActiveObjectives.remove(playerId); // アクティブオブジェクティブをクリア
-                player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardDisplayS2CPacket(1, null));
+                player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardDisplayS2CPacket(ScoreboardDisplaySlot.SIDEBAR, null));
             }
         } catch (Exception e) {
             ServerScoreboardLogger.error("Failed to send scoreboard display packet to player " + player.getName().getString(), e);
@@ -433,7 +440,7 @@ public class ServerScoreboardManager {
             String activeObjective = playerActiveObjectives.get(playerId);
             
             if (activeObjective != null && !activeObjective.isEmpty()) {
-                ScoreboardObjective objective = server.getScoreboard().getObjective(activeObjective);
+                ScoreboardObjective objective = server.getScoreboard().getNullableObjective(activeObjective);
                 if (objective != null) {
                     // 永続表示維持 + スコア値のみ更新
                     maintainPersistentDisplay(player, objective);
@@ -500,7 +507,7 @@ public class ServerScoreboardManager {
             
             ServerPlayerEntity player = server.getPlayerManager().getPlayer(playerId);
             if (player != null) {
-                ScoreboardObjective objective = server.getScoreboard().getObjective(objectiveName);
+                ScoreboardObjective objective = server.getScoreboard().getNullableObjective(objectiveName);
                 if (objective != null) {
                     sendScoreboardUpdatePackets(player, objective);
                 }
@@ -539,7 +546,7 @@ public class ServerScoreboardManager {
         ServerPlayerEntity player = server.getPlayerManager().getPlayer(playerId);
         if (player != null) {
             // サーバーの現在のデフォルトスコアボードに戻す
-            ScoreboardObjective currentDefault = server.getScoreboard().getObjectiveForSlot(1);
+            ScoreboardObjective currentDefault = server.getScoreboard().getObjectiveForSlot(ScoreboardDisplaySlot.SIDEBAR);
             if (currentDefault != null) {
                 // サーバーのデフォルトスコアボードを強制的に再送信
                 forceServerScoreboardSync(player);
@@ -564,23 +571,24 @@ public class ServerScoreboardManager {
         ServerScoreboard scoreboard = server.getScoreboard();
         
         // サイドバーのスコアボードを取得
-        ScoreboardObjective sidebarObjective = scoreboard.getObjectiveForSlot(1);
+        ScoreboardObjective sidebarObjective = scoreboard.getObjectiveForSlot(ScoreboardDisplaySlot.SIDEBAR);
         if (sidebarObjective != null) {
             // オブジェクティブを再送信
             player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardObjectiveUpdateS2CPacket(sidebarObjective, 0));
             
             // 全スコアを再送信
-            scoreboard.getAllPlayerScores(sidebarObjective).forEach(score -> {
-                player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardPlayerUpdateS2CPacket(
-                    net.minecraft.scoreboard.ServerScoreboard.UpdateMode.CHANGE,
+            scoreboard.getScoreboardEntries(sidebarObjective).forEach(score -> {
+                player.networkHandler.sendPacket(new ScoreboardScoreUpdateS2CPacket(
+                    score.owner(),
                     sidebarObjective.getName(),
-                    score.getPlayerName(),
-                    score.getScore()
+                    score.value(),
+                    Optional.empty(),
+                    Optional.empty()
                 ));
             });
             
             // サイドバーに表示
-            player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardDisplayS2CPacket(1, sidebarObjective));
+            player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardDisplayS2CPacket(ScoreboardDisplaySlot.SIDEBAR, sidebarObjective));
         }
     }
     
@@ -827,7 +835,7 @@ public class ServerScoreboardManager {
     private static void maintainPersistentDisplay(ServerPlayerEntity player, ScoreboardObjective objective) {
         // 毎回表示パケットを送信してスコアボード表示を強制維持
         // これにより他のパケットの影響でスコアボードが消えることを防ぐ
-        player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardDisplayS2CPacket(1, objective));
+        player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardDisplayS2CPacket(ScoreboardDisplaySlot.SIDEBAR, objective));
     }
     
     // 最小限のスコア更新（通信量最適化版）
@@ -840,24 +848,25 @@ public class ServerScoreboardManager {
         Map<String, Integer> objectiveCache = playerCache.computeIfAbsent(objectiveName, k -> new ConcurrentHashMap<>());
         
         // 現在のスコアを取得
-        var currentScores = server.getScoreboard().getAllPlayerScores(objective);
+        Collection<ScoreboardEntry> currentScores = server.getScoreboard().getScoreboardEntries(objective);
         Set<String> currentPlayerNames = new HashSet<>();
         int packetCount = 0;
         
         // スコア変更のみ送信（バニラと同じ動作）
-        for (var score : currentScores) {
-            String playerName = score.getPlayerName();
-            int currentValue = score.getScore();
+        for (ScoreboardEntry score : currentScores) {
+            String playerName = score.owner();
+            int currentValue = score.value();
             currentPlayerNames.add(playerName);
             
             Integer cachedValue = objectiveCache.get(playerName);
             if (forceFullSync || cachedValue == null || !cachedValue.equals(currentValue)) {
                 // スコア更新パケットのみ（表示パケットは送信しない）
-                player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardPlayerUpdateS2CPacket(
-                    net.minecraft.scoreboard.ServerScoreboard.UpdateMode.CHANGE,
-                    objectiveName,
+                player.networkHandler.sendPacket(new ScoreboardScoreUpdateS2CPacket(
                     playerName,
-                    currentValue
+                    objectiveName,
+                    currentValue,
+                    Optional.empty(),
+                    Optional.empty()
                 ));
                 objectiveCache.put(playerName, currentValue);
                 packetCount++;
@@ -870,11 +879,9 @@ public class ServerScoreboardManager {
             var entry = iterator.next();
             String playerName = entry.getKey();
             if (!currentPlayerNames.contains(playerName)) {
-                player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardPlayerUpdateS2CPacket(
-                    net.minecraft.scoreboard.ServerScoreboard.UpdateMode.REMOVE,
-                    objectiveName,
+                player.networkHandler.sendPacket(new ScoreboardScoreResetS2CPacket(
                     playerName,
-                    0
+                    objectiveName
                 ));
                 iterator.remove();
                 packetCount++;
@@ -904,25 +911,26 @@ public class ServerScoreboardManager {
         Map<String, Integer> objectiveCache = playerCache.computeIfAbsent(objectiveName, k -> new ConcurrentHashMap<>());
         
         // 現在のスコアデータを取得
-        var currentScores = server.getScoreboard().getAllPlayerScores(objective);
+        Collection<ScoreboardEntry> currentScores = server.getScoreboard().getScoreboardEntries(objective);
         Set<String> currentPlayerNames = new HashSet<>();
         int updateCount = 0;
         int removeCount = 0;
         
         // 更新または新規追加されたスコアのみを送信
-        for (var score : currentScores) {
-            String playerName = score.getPlayerName();
-            int currentScore = score.getScore();
+        for (ScoreboardEntry score : currentScores) {
+            String playerName = score.owner();
+            int currentScore = score.value();
             currentPlayerNames.add(playerName);
             
             Integer cachedScore = objectiveCache.get(playerName);
             if (cachedScore == null || !cachedScore.equals(currentScore)) {
                 // 変更があった場合のみパケットを送信（制限なし）
-                player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardPlayerUpdateS2CPacket(
-                    net.minecraft.scoreboard.ServerScoreboard.UpdateMode.CHANGE,
-                    objectiveName,
+                player.networkHandler.sendPacket(new ScoreboardScoreUpdateS2CPacket(
                     playerName,
-                    currentScore
+                    objectiveName,
+                    currentScore,
+                    Optional.empty(),
+                    Optional.empty()
                 ));
                 objectiveCache.put(playerName, currentScore);
                 updateCount++;
@@ -934,11 +942,9 @@ public class ServerScoreboardManager {
         for (String cachedPlayerName : cachedPlayerNames) {
             if (!currentPlayerNames.contains(cachedPlayerName)) {
                 // プレイヤーが削除された場合（制限なし）
-                player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardPlayerUpdateS2CPacket(
-                    net.minecraft.scoreboard.ServerScoreboard.UpdateMode.REMOVE,
-                    objectiveName,
+                player.networkHandler.sendPacket(new ScoreboardScoreResetS2CPacket(
                     cachedPlayerName,
-                    0
+                    objectiveName
                 ));
                 objectiveCache.remove(cachedPlayerName);
                 removeCount++;
@@ -965,7 +971,7 @@ public class ServerScoreboardManager {
         File statsConfigFile = configDir.resolve("total_stats_config.dat").toFile();
         if (statsConfigFile.exists()) {
             try {
-                NbtCompound nbt = NbtIo.readCompressed(statsConfigFile);
+                NbtCompound nbt = NbtIo.readCompressed(statsConfigFile.toPath(), NbtSizeTracker.ofUnlimitedBytes());
                 
                 // 有効な統計を読み込み
                 if (nbt.contains("enabledStats")) {
@@ -1012,7 +1018,7 @@ public class ServerScoreboardManager {
         nbt.put("excludedPlayers", excludedList);
         
         try {
-            NbtIo.writeCompressed(nbt, statsConfigFile);
+            NbtIo.writeCompressed(nbt, statsConfigFile.toPath());
         } catch (IOException e) {
             ServerScoreboardLogger.error("Failed to save total stats config", e);
         }
@@ -1042,11 +1048,11 @@ public class ServerScoreboardManager {
     private static void refreshScoreboardDisplay(ServerPlayerEntity player, String objectiveName) {
         try {
             ServerScoreboard scoreboard = server.getScoreboard();
-            ScoreboardObjective objective = scoreboard.getObjective(objectiveName);
+            ScoreboardObjective objective = scoreboard.getNullableObjective(objectiveName);
             
             if (objective != null) {
                 // サイドバー表示を再送信
-                player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardDisplayS2CPacket(1, objective));
+                player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardDisplayS2CPacket(ScoreboardDisplaySlot.SIDEBAR, objective));
             } else {
                 // オブジェクトが存在しない場合は再設定を試行
                 PlayerScoreboardData data = playerData.get(player.getUuid());
