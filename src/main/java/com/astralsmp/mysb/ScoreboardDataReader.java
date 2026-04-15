@@ -3,6 +3,7 @@ package com.astralsmp.mysb;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.nbt.NbtList;
+import net.minecraft.nbt.NbtSizeTracker;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.WorldSavePath;
 
@@ -25,7 +26,7 @@ public class ScoreboardDataReader {
                 return result;
             }
             
-            NbtCompound nbt = NbtIo.readCompressed(scoreboardFile);
+            NbtCompound nbt = NbtIo.readCompressed(scoreboardFile.toPath(), NbtSizeTracker.ofUnlimitedBytes());
             if (!nbt.contains("data")) {
                 ServerScoreboardLogger.warn("No data section in scoreboard.dat");
                 return result;
@@ -73,7 +74,7 @@ public class ScoreboardDataReader {
                 return result;
             }
             
-            NbtCompound nbt = NbtIo.readCompressed(scoreboardFile);
+            NbtCompound nbt = NbtIo.readCompressed(scoreboardFile.toPath(), NbtSizeTracker.ofUnlimitedBytes());
             if (!nbt.contains("data")) {
                 return result;
             }
@@ -113,7 +114,7 @@ public class ScoreboardDataReader {
                 return result;
             }
             
-            NbtCompound nbt = NbtIo.readCompressed(scoreboardFile);
+            NbtCompound nbt = NbtIo.readCompressed(scoreboardFile.toPath(), NbtSizeTracker.ofUnlimitedBytes());
             if (!nbt.contains("data")) {
                 return result;
             }

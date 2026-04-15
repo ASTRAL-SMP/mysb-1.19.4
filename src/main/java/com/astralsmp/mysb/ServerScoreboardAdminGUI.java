@@ -1,5 +1,6 @@
 package com.astralsmp.mysb;
 
+import net.minecraft.component.DataComponentTypes;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.inventory.Inventory;
@@ -50,12 +51,12 @@ public class ServerScoreboardAdminGUI implements GUIConstants {
         
         // Slot SLOT_SWITCH: スコアボード管理へ切り替え
         ItemStack switchButton = new ItemStack(Items.COMPASS);
-        switchButton.setCustomName(Text.literal("スコアボード管理へ").formatted(Formatting.AQUA));
+        switchButton.set(DataComponentTypes.CUSTOM_NAME, Text.literal("スコアボード管理へ").formatted(Formatting.AQUA));
         inventory.setStack(SLOT_SWITCH, switchButton);
 
         // Slot SLOT_CLOSE: Close button
         ItemStack closeButton = new ItemStack(Items.REDSTONE);
-        closeButton.setCustomName(Text.literal("閉じる").formatted(Formatting.RED));
+        closeButton.set(DataComponentTypes.CUSTOM_NAME, Text.literal("閉じる").formatted(Formatting.RED));
         inventory.setStack(SLOT_CLOSE, closeButton);
         
         // Get all available stats
@@ -66,13 +67,13 @@ public class ServerScoreboardAdminGUI implements GUIConstants {
         // Navigation
         if (page > 0) {
             ItemStack prevButton = new ItemStack(Items.ARROW);
-            prevButton.setCustomName(Text.literal("前のページ").formatted(Formatting.AQUA));
+            prevButton.set(DataComponentTypes.CUSTOM_NAME, Text.literal("前のページ").formatted(Formatting.AQUA));
             inventory.setStack(SLOT_PREV, prevButton);
         }
 
         if ((page + 1) * ITEMS_PER_PAGE < statsList.size()) {
             ItemStack nextButton = new ItemStack(Items.ARROW);
-            nextButton.setCustomName(Text.literal("次のページ").formatted(Formatting.AQUA));
+            nextButton.set(DataComponentTypes.CUSTOM_NAME, Text.literal("次のページ").formatted(Formatting.AQUA));
             inventory.setStack(SLOT_NEXT, nextButton);
         }
 
@@ -87,15 +88,13 @@ public class ServerScoreboardAdminGUI implements GUIConstants {
             boolean isEnabled = enabledStats.contains(statId);
 
             ItemStack statItem = new ItemStack(isEnabled ? Items.GOLDEN_APPLE : Items.APPLE);
-            statItem.setCustomName(Text.literal(displayName)
+            statItem.set(DataComponentTypes.CUSTOM_NAME, Text.literal(displayName)
                     .formatted(isEnabled ? Formatting.GOLD : Formatting.GRAY));
             List<Text> lore = new ArrayList<>();
             lore.add(Text.literal("ID: " + statId).formatted(Formatting.DARK_GRAY));
             lore.add(Text.literal(isEnabled ? "有効" : "無効")
                     .formatted(isEnabled ? Formatting.GREEN : Formatting.RED));
             lore.add(Text.literal("クリックで切り替え").formatted(Formatting.GRAY));
-            statItem.setNbt(statItem.getOrCreateNbt());
-
             inventory.setStack(SLOT_ITEMS_START + (i - startIndex), statItem);
         }
 
@@ -103,7 +102,7 @@ public class ServerScoreboardAdminGUI implements GUIConstants {
         for (int i = 0; i < GUI_SIZE; i++) {
             if (inventory.getStack(i).isEmpty()) {
                 ItemStack glassPane = new ItemStack(Items.GRAY_STAINED_GLASS_PANE);
-                glassPane.setCustomName(Text.literal(" "));
+                glassPane.set(DataComponentTypes.CUSTOM_NAME, Text.literal(" "));
                 inventory.setStack(i, glassPane);
             }
         }
@@ -114,12 +113,12 @@ public class ServerScoreboardAdminGUI implements GUIConstants {
         
         // Slot SLOT_SWITCH: 統計管理へ切り替え
         ItemStack switchButton = new ItemStack(Items.BOOK);
-        switchButton.setCustomName(Text.literal("統計管理へ").formatted(Formatting.AQUA));
+        switchButton.set(DataComponentTypes.CUSTOM_NAME, Text.literal("統計管理へ").formatted(Formatting.AQUA));
         inventory.setStack(SLOT_SWITCH, switchButton);
 
         // Slot SLOT_CLOSE: Close button
         ItemStack closeButton = new ItemStack(Items.REDSTONE);
-        closeButton.setCustomName(Text.literal("閉じる").formatted(Formatting.RED));
+        closeButton.set(DataComponentTypes.CUSTOM_NAME, Text.literal("閉じる").formatted(Formatting.RED));
         inventory.setStack(SLOT_CLOSE, closeButton);
         
         // Get objectives list
@@ -128,13 +127,13 @@ public class ServerScoreboardAdminGUI implements GUIConstants {
         // Navigation
         if (page > 0) {
             ItemStack prevButton = new ItemStack(Items.ARROW);
-            prevButton.setCustomName(Text.literal("前のページ").formatted(Formatting.AQUA));
+            prevButton.set(DataComponentTypes.CUSTOM_NAME, Text.literal("前のページ").formatted(Formatting.AQUA));
             inventory.setStack(SLOT_PREV, prevButton);
         }
 
         if ((page + 1) * ITEMS_PER_PAGE < objectives.size()) {
             ItemStack nextButton = new ItemStack(Items.ARROW);
-            nextButton.setCustomName(Text.literal("次のページ").formatted(Formatting.AQUA));
+            nextButton.set(DataComponentTypes.CUSTOM_NAME, Text.literal("次のページ").formatted(Formatting.AQUA));
             inventory.setStack(SLOT_NEXT, nextButton);
         }
 
@@ -145,7 +144,7 @@ public class ServerScoreboardAdminGUI implements GUIConstants {
         for (int i = startIndex; i < endIndex; i++) {
             String objective = objectives.get(i);
             ItemStack objectiveItem = new ItemStack(Items.PAPER);
-            objectiveItem.setCustomName(Text.literal(objective).formatted(Formatting.WHITE));
+            objectiveItem.set(DataComponentTypes.CUSTOM_NAME, Text.literal(objective).formatted(Formatting.WHITE));
             inventory.setStack(SLOT_ITEMS_START + (i - startIndex), objectiveItem);
         }
 
@@ -153,7 +152,7 @@ public class ServerScoreboardAdminGUI implements GUIConstants {
         for (int i = 0; i < GUI_SIZE; i++) {
             if (inventory.getStack(i).isEmpty()) {
                 ItemStack glassPane = new ItemStack(Items.GRAY_STAINED_GLASS_PANE);
-                glassPane.setCustomName(Text.literal(" "));
+                glassPane.set(DataComponentTypes.CUSTOM_NAME, Text.literal(" "));
                 inventory.setStack(i, glassPane);
             }
         }

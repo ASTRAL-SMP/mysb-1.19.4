@@ -3,14 +3,14 @@ package com.astralsmp.mysb.discord;
 import com.astralsmp.mysb.GUIConstants;
 import com.astralsmp.mysb.ServerScoreboardLogger;
 import com.astralsmp.mysb.TotalStatsManager;
-import net.minecraft.enchantment.Enchantments;
+import net.minecraft.component.DataComponentTypes;
+import net.minecraft.component.type.LoreComponent;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.inventory.Inventory;
 import net.minecraft.inventory.SimpleInventory;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
-import net.minecraft.nbt.NbtList;
 import net.minecraft.screen.GenericContainerScreenHandler;
 import net.minecraft.screen.ScreenHandlerType;
 import net.minecraft.screen.slot.Slot;
@@ -50,7 +50,7 @@ public class DiscordSettingsGUI implements GUIConstants {
 
         // スロット0: チャンネルID情報
         ItemStack infoItem = new ItemStack(Items.BOOK);
-        infoItem.setCustomName(Text.literal("フォーラムチャンネル設定").formatted(Formatting.GOLD));
+        infoItem.set(DataComponentTypes.CUSTOM_NAME, Text.literal("フォーラムチャンネル設定").formatted(Formatting.GOLD));
         List<Text> infoLore = new ArrayList<>();
         if (DiscordConfig.hasForumChannelId()) {
             infoLore.add(Text.literal("チャンネルID: " + DiscordConfig.getForumChannelId()).formatted(Formatting.GREEN));
@@ -64,7 +64,7 @@ public class DiscordSettingsGUI implements GUIConstants {
         // スロット4: 接続ステータス
         boolean connected = DiscordManager.isConnectionVerified();
         ItemStack statusItem = new ItemStack(connected ? Items.LIME_CONCRETE : Items.RED_CONCRETE);
-        statusItem.setCustomName(Text.literal("接続ステータス").formatted(connected ? Formatting.GREEN : Formatting.RED));
+        statusItem.set(DataComponentTypes.CUSTOM_NAME, Text.literal("接続ステータス").formatted(connected ? Formatting.GREEN : Formatting.RED));
         List<Text> statusLore = new ArrayList<>();
         if (DiscordConfig.hasValidToken()) {
             statusLore.add(Text.literal(connected ? "接続中" : "未接続").formatted(connected ? Formatting.GREEN : Formatting.RED));
@@ -84,13 +84,13 @@ public class DiscordSettingsGUI implements GUIConstants {
 
         // スロット8: 閉じるボタン
         ItemStack closeButton = new ItemStack(Items.REDSTONE);
-        closeButton.setCustomName(Text.literal("閉じる").formatted(Formatting.RED));
+        closeButton.set(DataComponentTypes.CUSTOM_NAME, Text.literal("閉じる").formatted(Formatting.RED));
         inventory.setStack(SLOT_CLOSE_BTN, closeButton);
 
         // 行1: 区切り線（ガラス）
         for (int i = 9; i < 18; i++) {
             ItemStack glassPane = new ItemStack(Items.GRAY_STAINED_GLASS_PANE);
-            glassPane.setCustomName(Text.literal(" "));
+            glassPane.set(DataComponentTypes.CUSTOM_NAME, Text.literal(" "));
             inventory.setStack(i, glassPane);
         }
 
@@ -100,13 +100,13 @@ public class DiscordSettingsGUI implements GUIConstants {
 
         if (page > 0) {
             ItemStack prevButton = new ItemStack(Items.ARROW);
-            prevButton.setCustomName(Text.literal("前のページ").formatted(Formatting.AQUA));
+            prevButton.set(DataComponentTypes.CUSTOM_NAME, Text.literal("前のページ").formatted(Formatting.AQUA));
             inventory.setStack(SLOT_PREV, prevButton);
         }
 
         if ((page + 1) * ITEMS_PER_PAGE < statsList.size()) {
             ItemStack nextButton = new ItemStack(Items.ARROW);
-            nextButton.setCustomName(Text.literal("次のページ").formatted(Formatting.AQUA));
+            nextButton.set(DataComponentTypes.CUSTOM_NAME, Text.literal("次のページ").formatted(Formatting.AQUA));
             inventory.setStack(SLOT_NEXT, nextButton);
         }
 
@@ -114,7 +114,7 @@ public class DiscordSettingsGUI implements GUIConstants {
         for (int i = 18; i < 27; i++) {
             if (inventory.getStack(i).isEmpty()) {
                 ItemStack glassPane = new ItemStack(Items.GRAY_STAINED_GLASS_PANE);
-                glassPane.setCustomName(Text.literal(" "));
+                glassPane.set(DataComponentTypes.CUSTOM_NAME, Text.literal(" "));
                 inventory.setStack(i, glassPane);
             }
         }
@@ -134,12 +134,10 @@ public class DiscordSettingsGUI implements GUIConstants {
 
             // Discord ONの場合はエンチャント効果を追加
             if (isEnabled) {
-                statItem.addEnchantment(Enchantments.UNBREAKING, 1);
-                // エンチャントのツールチップを非表示
-                statItem.getOrCreateNbt().putInt("HideFlags", 1);
+                statItem.set(DataComponentTypes.ENCHANTMENT_GLINT_OVERRIDE, true);
             }
 
-            statItem.setCustomName(Text.literal(displayName)
+            statItem.set(DataComponentTypes.CUSTOM_NAME, Text.literal(displayName)
                 .formatted(isEnabled ? Formatting.GOLD : Formatting.GRAY));
 
             List<Text> lore = new ArrayList<>();
@@ -156,18 +154,14 @@ public class DiscordSettingsGUI implements GUIConstants {
         for (int i = 0; i < GUI_SIZE; i++) {
             if (inventory.getStack(i).isEmpty()) {
                 ItemStack glassPane = new ItemStack(Items.GRAY_STAINED_GLASS_PANE);
-                glassPane.setCustomName(Text.literal(" "));
+                glassPane.set(DataComponentTypes.CUSTOM_NAME, Text.literal(" "));
                 inventory.setStack(i, glassPane);
             }
         }
     }
 
     private static void setLore(ItemStack item, List<Text> lore) {
-        NbtList loreList = new NbtList();
-        for (Text line : lore) {
-            loreList.add(net.minecraft.nbt.NbtString.of(Text.Serializer.toJson(line)));
-        }
-        item.getOrCreateSubNbt("display").put("Lore", loreList);
+        item.set(DataComponentTypes.LORE, new LoreComponent(lore));
     }
 
     public static class DiscordScreenHandler extends GenericContainerScreenHandler implements GUIConstants {

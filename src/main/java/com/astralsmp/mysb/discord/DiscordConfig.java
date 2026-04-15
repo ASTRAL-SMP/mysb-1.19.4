@@ -49,7 +49,7 @@ public class DiscordConfig {
     public static void initialize(MinecraftServer server) {
         try {
             // config/mysb ディレクトリを作成
-            Path configDir = server.getRunDirectory().toPath().resolve(CONFIG_DIR);
+            Path configDir = server.getRunDirectory().resolve(CONFIG_DIR);
             Files.createDirectories(configDir);
 
             configPath = configDir.resolve(CONFIG_FILE);

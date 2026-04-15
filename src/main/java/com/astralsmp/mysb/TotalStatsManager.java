@@ -1,9 +1,11 @@
 package com.astralsmp.mysb;
 
 import net.minecraft.scoreboard.Scoreboard;
+import net.minecraft.scoreboard.ScoreAccess;
 import net.minecraft.scoreboard.ScoreboardCriterion;
+import net.minecraft.scoreboard.ScoreboardEntry;
+import net.minecraft.scoreboard.ScoreHolder;
 import net.minecraft.scoreboard.ScoreboardObjective;
-import net.minecraft.scoreboard.ScoreboardPlayerScore;
 import java.util.Collection;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -127,7 +129,7 @@ public class TotalStatsManager {
         String objectiveName = TOTAL_PREFIX + config.id;
         
         // 既存のオブジェクティブをチェック
-        if (scoreboard.getObjective(objectiveName) != null) {
+        if (scoreboard.getNullableObjective(objectiveName) != null) {
             return;
         }
         
@@ -136,7 +138,9 @@ public class TotalStatsManager {
             objectiveName,
             ScoreboardCriterion.DUMMY,
             Text.literal(config.displayName),
-            ScoreboardCriterion.RenderType.INTEGER
+            ScoreboardCriterion.RenderType.INTEGER,
+            false,
+            null
         );
         
         ServerScoreboardLogger.info("Created total objective: " + objectiveName);
@@ -208,11 +212,11 @@ public class TotalStatsManager {
     private static void updateTotalStat(TotalStatConfig config) {
         Scoreboard scoreboard = server.getScoreboard();
         String objectiveName = TOTAL_PREFIX + config.id;
-        ScoreboardObjective objective = scoreboard.getObjective(objectiveName);
+        ScoreboardObjective objective = scoreboard.getNullableObjective(objectiveName);
         
         if (objective == null) {
             createTotalObjective(config);
-            objective = scoreboard.getObjective(objectiveName);
+            objective = scoreboard.getNullableObjective(objectiveName);
             if (objective == null) return;
         }
         
@@ -276,14 +280,14 @@ public class TotalStatsManager {
         }
         
         // Clear old scores
-        Collection<ScoreboardPlayerScore> oldScores = scoreboard.getAllPlayerScores(objective);
-        for (ScoreboardPlayerScore oldScore : oldScores) {
-            scoreboard.resetPlayerScore(oldScore.getPlayerName(), objective);
+        Collection<ScoreboardEntry> oldScores = new ArrayList<>(scoreboard.getScoreboardEntries(objective));
+        for (ScoreboardEntry oldScore : oldScores) {
+            scoreboard.removeScore(ScoreHolder.fromName(oldScore.owner()), objective);
         }
         
         {
             // 通常の統計表示
-            ScoreboardPlayerScore totalScore = scoreboard.getPlayerScore("  §6§l$SERVER_TOTAL", objective);
+            ScoreAccess totalScore = scoreboard.getOrCreateScore(ScoreHolder.fromName("  §6§l$SERVER_TOTAL"), objective);
             int oldTotal = totalScore.getScore();
             totalScore.setScore(total);
             
@@ -291,7 +295,7 @@ public class TotalStatsManager {
             
             for (Map.Entry<String, Integer> entry : playerStats.entrySet()) {
                 if (entry.getValue() > 0) { // 0の値は表示しない
-                    ScoreboardPlayerScore score = scoreboard.getPlayerScore(entry.getKey(), objective);
+                    ScoreAccess score = scoreboard.getOrCreateScore(ScoreHolder.fromName(entry.getKey()), objective);
                     int oldValue = score.getScore();
                     score.setScore(entry.getValue());
                     
@@ -351,7 +355,7 @@ public class TotalStatsManager {
                 };
                 try {
                     for (String oreName : allOres) {
-                        Block block = Registries.BLOCK.get(new Identifier("minecraft", oreName));
+                        Block block = Registries.BLOCK.get(Identifier.ofVanilla(oreName));
                         if (block != null && block != Blocks.AIR) {
                             total += player.getStatHandler().getStat(Stats.MINED.getOrCreateStat(block));
                         }
@@ -363,7 +367,7 @@ public class TotalStatsManager {
             case "deepslate_mined":
                 // Deepslate blocks mined (the stone itself, not the ores)
                 try {
-                    Block deepslateBlock = Registries.BLOCK.get(new Identifier("minecraft", "deepslate"));
+                    Block deepslateBlock = Registries.BLOCK.get(Identifier.ofVanilla("deepslate"));
                     if (deepslateBlock != null && deepslateBlock != Blocks.AIR) {
                         total = player.getStatHandler().getStat(Stats.MINED.getOrCreateStat(deepslateBlock));
                     }
@@ -381,7 +385,7 @@ public class TotalStatsManager {
                 };
                 try {
                     for (String blockName : coralBlocksForMining) {
-                        Block block = Registries.BLOCK.get(new Identifier("minecraft", blockName));
+                        Block block = Registries.BLOCK.get(Identifier.ofVanilla(blockName));
                         if (block != null && block != Blocks.AIR) {
                             total += player.getStatHandler().getStat(Stats.MINED.getOrCreateStat(block));
                         }
@@ -401,7 +405,7 @@ public class TotalStatsManager {
                 };
                 try {
                     for (String blockName : glassBlocks) {
-                        Item item = Registries.ITEM.get(new Identifier("minecraft", blockName));
+                        Item item = Registries.ITEM.get(Identifier.ofVanilla(blockName));
                         if (item != null && item != Items.AIR && item instanceof BlockItem) {
                             total += player.getStatHandler().getStat(Stats.USED.getOrCreateStat(item));
                         }
@@ -421,7 +425,7 @@ public class TotalStatsManager {
                 break;
             case "placed_anvil":
                 try {
-                    var anvil = Registries.ITEM.get(new net.minecraft.util.Identifier("minecraft", "anvil"));
+                    var anvil = Registries.ITEM.get(Identifier.ofVanilla("anvil"));
                     if (anvil != null) {
                         total = player.getStatHandler().getStat(Stats.USED.getOrCreateStat(anvil));
                     }
@@ -539,7 +543,7 @@ public class TotalStatsManager {
         // Remove the objective from scoreboard
         Scoreboard scoreboard = server.getScoreboard();
         String objectiveName = TOTAL_PREFIX + statId;
-        ScoreboardObjective objective = scoreboard.getObjective(objectiveName);
+        ScoreboardObjective objective = scoreboard.getNullableObjective(objectiveName);
         if (objective != null) {
             scoreboard.removeObjective(objective);
         }
