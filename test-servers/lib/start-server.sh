@@ -23,8 +23,17 @@ if ! command -v curl >/dev/null; then
   echo "curl が必要です (nix-shell 経由で起動してください)" >&2
   exit 1
 fi
-INSTALLER_VERSION="${INSTALLER_VERSION:-$(curl -sSf https://meta.fabricmc.net/v2/versions/installer \
-  | grep -oE '"version":"[^"]+"' | head -1 | cut -d'"' -f4)}"
+if [ -z "${INSTALLER_VERSION:-}" ]; then
+  if command -v jq >/dev/null 2>&1; then
+    INSTALLER_VERSION=$(curl -sSf https://meta.fabricmc.net/v2/versions/installer | jq -r '.[0].version')
+  else
+    # jq がなければ grep/sed で抽出 (SIGPIPE を避けて一時ファイル経由)
+    _tmp=$(mktemp)
+    curl -sSf https://meta.fabricmc.net/v2/versions/installer > "$_tmp"
+    INSTALLER_VERSION=$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' "$_tmp" | head -1)
+    rm -f "$_tmp"
+  fi
+fi
 echo "Installer: ${INSTALLER_VERSION}"
 
 # Fabric server launcher JAR
@@ -40,6 +49,7 @@ fi
 # server.properties (初回のみ生成)
 if [ ! -f server.properties ]; then
   cat > server.properties <<EOF
+server-port=${PORT:-25565}
 online-mode=false
 max-players=5
 motd=MySB MC ${MC_VERSION} test server
@@ -54,22 +64,42 @@ fi
 
 mkdir -p mods
 
-# MySB jar 配置: 優先順位 = 手動配置 > リポジトリのローカルビルド > GitHub Release
+# MySB jar 配置: 優先順位 = 手動配置 > GitHub Release > ローカルビルド
+# (ローカルビルドは古い状態が残っている場合があるので Release を優先)
 JAR_NAME="mysb-${MC_VERSION}-${MOD_VERSION}.jar"
 if ! ls mods/mysb-*.jar >/dev/null 2>&1; then
   REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-  LOCAL_JAR="${REPO_ROOT}/build/libs/${JAR_NAME}"
-  if [ -f "${LOCAL_JAR}" ]; then
-    echo "Using local build: ${LOCAL_JAR}"
-    cp "${LOCAL_JAR}" "mods/${JAR_NAME}"
-  elif command -v gh >/dev/null 2>&1; then
+  got=0
+  if command -v gh >/dev/null 2>&1; then
     echo "Fetching from GitHub Releases: v${MOD_VERSION}-mc${MC_VERSION}"
-    (cd "${REPO_ROOT}" && gh release download "v${MOD_VERSION}-mc${MC_VERSION}" \
-      --pattern "${JAR_NAME}" --dir "${SERVER_DIR}/mods/") || {
-        echo "(gh release download に失敗、mods/ に手動配置してください)"
-      }
+    if (cd "${REPO_ROOT}" && gh release download "v${MOD_VERSION}-mc${MC_VERSION}" \
+          --pattern "${JAR_NAME}" --dir "${SERVER_DIR}/mods/" 2>/dev/null); then
+      got=1
+    fi
+  fi
+  if [ "$got" -eq 0 ]; then
+    LOCAL_JAR="${REPO_ROOT}/build/libs/${JAR_NAME}"
+    if [ -f "${LOCAL_JAR}" ]; then
+      echo "Fallback: using local build ${LOCAL_JAR}"
+      cp "${LOCAL_JAR}" "mods/${JAR_NAME}"
+    else
+      echo "(mods/ に ${JAR_NAME} を手動配置するか、GitHub Release または gradlew build が必要)" >&2
+      exit 1
+    fi
+  fi
+fi
+
+# fabric-api 自動取得 (MySB は depends に fabric-api を宣言しているので必須)
+if ! ls mods/fabric-api-*.jar >/dev/null 2>&1; then
+  echo "Fetching fabric-api for MC ${MC_VERSION}..."
+  FA_QUERY="https://api.modrinth.com/v2/project/fabric-api/version?game_versions=%5B%22${MC_VERSION}%22%5D&loaders=%5B%22fabric%22%5D"
+  FA_URL=$(curl -sSfL "$FA_QUERY" | jq -r '.[0].files[0].url // empty')
+  if [ -n "$FA_URL" ]; then
+    FA_NAME=$(basename "${FA_URL}")
+    curl -sSfL -o "mods/${FA_NAME}" "$FA_URL"
+    echo "Installed fabric-api: ${FA_NAME}"
   else
-    echo "(mods/ に ${JAR_NAME} を手動配置するか、ローカルで ./gradlew build してください)"
+    echo "(fabric-api version の解決に失敗、mods/ に手動配置してください)" >&2
   fi
 fi
 
