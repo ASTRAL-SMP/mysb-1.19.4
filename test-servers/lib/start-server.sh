@@ -23,8 +23,17 @@ if ! command -v curl >/dev/null; then
   echo "curl が必要です (nix-shell 経由で起動してください)" >&2
   exit 1
 fi
-INSTALLER_VERSION="${INSTALLER_VERSION:-$(curl -sSf https://meta.fabricmc.net/v2/versions/installer \
-  | grep -oE '"version":"[^"]+"' | head -1 | cut -d'"' -f4)}"
+if [ -z "${INSTALLER_VERSION:-}" ]; then
+  if command -v jq >/dev/null 2>&1; then
+    INSTALLER_VERSION=$(curl -sSf https://meta.fabricmc.net/v2/versions/installer | jq -r '.[0].version')
+  else
+    # jq がなければ grep/sed で抽出 (SIGPIPE を避けて一時ファイル経由)
+    _tmp=$(mktemp)
+    curl -sSf https://meta.fabricmc.net/v2/versions/installer > "$_tmp"
+    INSTALLER_VERSION=$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' "$_tmp" | head -1)
+    rm -f "$_tmp"
+  fi
+fi
 echo "Installer: ${INSTALLER_VERSION}"
 
 # Fabric server launcher JAR
