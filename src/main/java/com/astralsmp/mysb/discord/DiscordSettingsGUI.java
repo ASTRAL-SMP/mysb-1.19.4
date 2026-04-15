@@ -16,6 +16,7 @@ import net.minecraft.screen.ScreenHandlerType;
 import net.minecraft.screen.slot.Slot;
 import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.text.LiteralText;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 
@@ -41,7 +42,7 @@ public class DiscordSettingsGUI implements GUIConstants {
 
         player.openHandledScreen(new net.minecraft.screen.SimpleNamedScreenHandlerFactory(
             (syncId, playerInventory, playerEntity) -> new DiscordScreenHandler(syncId, playerInventory, inventory, player),
-            Text.literal("Discord設定")
+            new LiteralText("Discord設定")
         ));
     }
 
@@ -50,13 +51,13 @@ public class DiscordSettingsGUI implements GUIConstants {
 
         // スロット0: チャンネルID情報
         ItemStack infoItem = new ItemStack(Items.BOOK);
-        infoItem.setCustomName(Text.literal("フォーラムチャンネル設定").formatted(Formatting.GOLD));
+        infoItem.setCustomName(new LiteralText("フォーラムチャンネル設定").formatted(Formatting.GOLD));
         List<Text> infoLore = new ArrayList<>();
         if (DiscordConfig.hasForumChannelId()) {
-            infoLore.add(Text.literal("チャンネルID: " + DiscordConfig.getForumChannelId()).formatted(Formatting.GREEN));
+            infoLore.add(new LiteralText("チャンネルID: " + DiscordConfig.getForumChannelId()).formatted(Formatting.GREEN));
         } else {
-            infoLore.add(Text.literal("未設定").formatted(Formatting.RED));
-            infoLore.add(Text.literal("/mysbdiscord channel <ID> で設定").formatted(Formatting.GRAY));
+            infoLore.add(new LiteralText("未設定").formatted(Formatting.RED));
+            infoLore.add(new LiteralText("/mysbdiscord channel <ID> で設定").formatted(Formatting.GRAY));
         }
         setLore(infoItem, infoLore);
         inventory.setStack(SLOT_INFO, infoItem);
@@ -64,33 +65,33 @@ public class DiscordSettingsGUI implements GUIConstants {
         // スロット4: 接続ステータス
         boolean connected = DiscordManager.isConnectionVerified();
         ItemStack statusItem = new ItemStack(connected ? Items.LIME_CONCRETE : Items.RED_CONCRETE);
-        statusItem.setCustomName(Text.literal("接続ステータス").formatted(connected ? Formatting.GREEN : Formatting.RED));
+        statusItem.setCustomName(new LiteralText("接続ステータス").formatted(connected ? Formatting.GREEN : Formatting.RED));
         List<Text> statusLore = new ArrayList<>();
         if (DiscordConfig.hasValidToken()) {
-            statusLore.add(Text.literal(connected ? "接続中" : "未接続").formatted(connected ? Formatting.GREEN : Formatting.RED));
+            statusLore.add(new LiteralText(connected ? "接続中" : "未接続").formatted(connected ? Formatting.GREEN : Formatting.RED));
             if (!connected) {
-                statusLore.add(Text.literal("/mysbdiscord reconnect で再接続").formatted(Formatting.GRAY));
+                statusLore.add(new LiteralText("/mysbdiscord reconnect で再接続").formatted(Formatting.GRAY));
             }
         } else {
-            statusLore.add(Text.literal("トークン未設定").formatted(Formatting.RED));
-            statusLore.add(Text.literal("config/mysb/discord_config.properties").formatted(Formatting.GRAY));
+            statusLore.add(new LiteralText("トークン未設定").formatted(Formatting.RED));
+            statusLore.add(new LiteralText("config/mysb/discord_config.properties").formatted(Formatting.GRAY));
         }
         // 次回更新までの時間
         if (connected) {
-            statusLore.add(Text.literal("次回更新: " + DiscordScheduler.getTimeUntilNextUpdateFormatted()).formatted(Formatting.AQUA));
+            statusLore.add(new LiteralText("次回更新: " + DiscordScheduler.getTimeUntilNextUpdateFormatted()).formatted(Formatting.AQUA));
         }
         setLore(statusItem, statusLore);
         inventory.setStack(SLOT_STATUS, statusItem);
 
         // スロット8: 閉じるボタン
         ItemStack closeButton = new ItemStack(Items.REDSTONE);
-        closeButton.setCustomName(Text.literal("閉じる").formatted(Formatting.RED));
+        closeButton.setCustomName(new LiteralText("閉じる").formatted(Formatting.RED));
         inventory.setStack(SLOT_CLOSE_BTN, closeButton);
 
         // 行1: 区切り線（ガラス）
         for (int i = 9; i < 18; i++) {
             ItemStack glassPane = new ItemStack(Items.GRAY_STAINED_GLASS_PANE);
-            glassPane.setCustomName(Text.literal(" "));
+            glassPane.setCustomName(new LiteralText(" "));
             inventory.setStack(i, glassPane);
         }
 
@@ -100,13 +101,13 @@ public class DiscordSettingsGUI implements GUIConstants {
 
         if (page > 0) {
             ItemStack prevButton = new ItemStack(Items.ARROW);
-            prevButton.setCustomName(Text.literal("前のページ").formatted(Formatting.AQUA));
+            prevButton.setCustomName(new LiteralText("前のページ").formatted(Formatting.AQUA));
             inventory.setStack(SLOT_PREV, prevButton);
         }
 
         if ((page + 1) * ITEMS_PER_PAGE < statsList.size()) {
             ItemStack nextButton = new ItemStack(Items.ARROW);
-            nextButton.setCustomName(Text.literal("次のページ").formatted(Formatting.AQUA));
+            nextButton.setCustomName(new LiteralText("次のページ").formatted(Formatting.AQUA));
             inventory.setStack(SLOT_NEXT, nextButton);
         }
 
@@ -114,7 +115,7 @@ public class DiscordSettingsGUI implements GUIConstants {
         for (int i = 18; i < 27; i++) {
             if (inventory.getStack(i).isEmpty()) {
                 ItemStack glassPane = new ItemStack(Items.GRAY_STAINED_GLASS_PANE);
-                glassPane.setCustomName(Text.literal(" "));
+                glassPane.setCustomName(new LiteralText(" "));
                 inventory.setStack(i, glassPane);
             }
         }
@@ -139,14 +140,14 @@ public class DiscordSettingsGUI implements GUIConstants {
                 statItem.getOrCreateNbt().putInt("HideFlags", 1);
             }
 
-            statItem.setCustomName(Text.literal(displayName)
+            statItem.setCustomName(new LiteralText(displayName)
                 .formatted(isEnabled ? Formatting.GOLD : Formatting.GRAY));
 
             List<Text> lore = new ArrayList<>();
-            lore.add(Text.literal("ID: " + statId).formatted(Formatting.DARK_GRAY));
-            lore.add(Text.literal("Discord: " + (isEnabled ? "ON" : "OFF"))
+            lore.add(new LiteralText("ID: " + statId).formatted(Formatting.DARK_GRAY));
+            lore.add(new LiteralText("Discord: " + (isEnabled ? "ON" : "OFF"))
                 .formatted(isEnabled ? Formatting.GREEN : Formatting.RED));
-            lore.add(Text.literal("クリックで切り替え").formatted(Formatting.GRAY));
+            lore.add(new LiteralText("クリックで切り替え").formatted(Formatting.GRAY));
             setLore(statItem, lore);
 
             inventory.setStack(SLOT_ITEMS_START + (i - startIndex), statItem);
@@ -156,7 +157,7 @@ public class DiscordSettingsGUI implements GUIConstants {
         for (int i = 0; i < GUI_SIZE; i++) {
             if (inventory.getStack(i).isEmpty()) {
                 ItemStack glassPane = new ItemStack(Items.GRAY_STAINED_GLASS_PANE);
-                glassPane.setCustomName(Text.literal(" "));
+                glassPane.setCustomName(new LiteralText(" "));
                 inventory.setStack(i, glassPane);
             }
         }
@@ -187,7 +188,7 @@ public class DiscordSettingsGUI implements GUIConstants {
         }
 
         @Override
-        public ItemStack quickMove(PlayerEntity player, int slot) {
+        public ItemStack transferSlot(PlayerEntity player, int slot) {
             return ItemStack.EMPTY;
         }
 
@@ -253,18 +254,18 @@ public class DiscordSettingsGUI implements GUIConstants {
                     boolean isNowEnabled = DiscordConfig.isDiscordEnabled(statId);
 
                     if (isNowEnabled) {
-                        player.sendMessage(Text.literal("Discord送信を有効化: " + statId)
-                            .formatted(Formatting.GREEN));
+                        player.sendMessage(new LiteralText("Discord送信を有効化: " + statId)
+                            .formatted(Formatting.GREEN), false);
                     } else {
-                        player.sendMessage(Text.literal("Discord送信を無効化: " + statId)
-                            .formatted(Formatting.RED));
+                        player.sendMessage(new LiteralText("Discord送信を無効化: " + statId)
+                            .formatted(Formatting.RED), false);
                     }
 
                     refreshGUI();
                 }
             } catch (Exception e) {
                 ServerScoreboardLogger.error("Error handling Discord GUI item selection", e);
-                player.sendMessage(Text.literal("エラーが発生しました").formatted(Formatting.RED));
+                player.sendMessage(new LiteralText("エラーが発生しました").formatted(Formatting.RED), false);
             }
         }
 

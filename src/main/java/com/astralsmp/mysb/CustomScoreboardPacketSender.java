@@ -8,6 +8,7 @@ import net.minecraft.scoreboard.ScoreboardObjective;
 import net.minecraft.scoreboard.ServerScoreboard;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.text.LiteralText;
 import net.minecraft.text.Text;
 
 import java.util.*;
@@ -39,7 +40,7 @@ public class CustomScoreboardPacketSender {
         ScoreboardObjective virtualObjective = new VirtualObjective(
             virtualObjectiveName,
             originalObjective.getCriterion(),
-            Text.literal(transformedDisplayName),
+            new LiteralText(transformedDisplayName),
             originalObjective.getRenderType()
         );
         
@@ -177,7 +178,7 @@ public class CustomScoreboardPacketSender {
         ScoreboardObjective virtualObjective = new VirtualObjective(
             virtualObjectiveName,
             ScoreboardCriterion.DUMMY,
-            Text.literal(""),
+            new LiteralText(""),
             ScoreboardCriterion.RenderType.INTEGER
         );
         
@@ -216,7 +217,7 @@ public class CustomScoreboardPacketSender {
         if (server == null) return;
         
         String objectiveName = "mysb_custom_" + player.getUuidAsString().substring(0, 8);
-        Text displayName = Text.literal(data.getCustomDisplayName() != null ? data.getCustomDisplayName() : "Custom Scoreboard");
+        Text displayName = new LiteralText(data.getCustomDisplayName() != null ? data.getCustomDisplayName() : "Custom Scoreboard");
         
         ServerScoreboard scoreboard = server.getScoreboard();
         

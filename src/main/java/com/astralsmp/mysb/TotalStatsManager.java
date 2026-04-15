@@ -9,14 +9,15 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.stat.Stat;
 import net.minecraft.stat.Stats;
+import net.minecraft.text.LiteralText;
 import net.minecraft.text.Text;
-import net.minecraft.registry.Registries;
 import net.minecraft.block.Block;
 import net.minecraft.block.Blocks;
 import net.minecraft.item.BlockItem;
 import net.minecraft.item.Item;
 import net.minecraft.item.Items;
 import net.minecraft.util.Identifier;
+import net.minecraft.util.registry.Registry;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -74,12 +75,12 @@ public class TotalStatsManager {
     private static void initializeRegistryCaches() {
         if (allBlocksCache == null) {
             allBlocksCache = new HashSet<>();
-            Registries.BLOCK.forEach(allBlocksCache::add);
+            Registry.BLOCK.forEach(allBlocksCache::add);
             ServerScoreboardLogger.info("Cached " + allBlocksCache.size() + " blocks for statistics");
         }
         if (blockItemsCache == null) {
             blockItemsCache = new HashSet<>();
-            Registries.ITEM.forEach(item -> {
+            Registry.ITEM.forEach(item -> {
                 if (item instanceof BlockItem) {
                     blockItemsCache.add(item);
                 }
@@ -135,7 +136,7 @@ public class TotalStatsManager {
         ScoreboardObjective objective = scoreboard.addObjective(
             objectiveName,
             ScoreboardCriterion.DUMMY,
-            Text.literal(config.displayName),
+            new LiteralText(config.displayName),
             ScoreboardCriterion.RenderType.INTEGER
         );
         
@@ -351,7 +352,7 @@ public class TotalStatsManager {
                 };
                 try {
                     for (String oreName : allOres) {
-                        Block block = Registries.BLOCK.get(new Identifier("minecraft", oreName));
+                        Block block = Registry.BLOCK.get(new Identifier("minecraft", oreName));
                         if (block != null && block != Blocks.AIR) {
                             total += player.getStatHandler().getStat(Stats.MINED.getOrCreateStat(block));
                         }
@@ -363,7 +364,7 @@ public class TotalStatsManager {
             case "deepslate_mined":
                 // Deepslate blocks mined (the stone itself, not the ores)
                 try {
-                    Block deepslateBlock = Registries.BLOCK.get(new Identifier("minecraft", "deepslate"));
+                    Block deepslateBlock = Registry.BLOCK.get(new Identifier("minecraft", "deepslate"));
                     if (deepslateBlock != null && deepslateBlock != Blocks.AIR) {
                         total = player.getStatHandler().getStat(Stats.MINED.getOrCreateStat(deepslateBlock));
                     }
@@ -381,7 +382,7 @@ public class TotalStatsManager {
                 };
                 try {
                     for (String blockName : coralBlocksForMining) {
-                        Block block = Registries.BLOCK.get(new Identifier("minecraft", blockName));
+                        Block block = Registry.BLOCK.get(new Identifier("minecraft", blockName));
                         if (block != null && block != Blocks.AIR) {
                             total += player.getStatHandler().getStat(Stats.MINED.getOrCreateStat(block));
                         }
@@ -401,7 +402,7 @@ public class TotalStatsManager {
                 };
                 try {
                     for (String blockName : glassBlocks) {
-                        Item item = Registries.ITEM.get(new Identifier("minecraft", blockName));
+                        Item item = Registry.ITEM.get(new Identifier("minecraft", blockName));
                         if (item != null && item != Items.AIR && item instanceof BlockItem) {
                             total += player.getStatHandler().getStat(Stats.USED.getOrCreateStat(item));
                         }
@@ -421,7 +422,7 @@ public class TotalStatsManager {
                 break;
             case "placed_anvil":
                 try {
-                    var anvil = Registries.ITEM.get(new net.minecraft.util.Identifier("minecraft", "anvil"));
+                    var anvil = Registry.ITEM.get(new net.minecraft.util.Identifier("minecraft", "anvil"));
                     if (anvil != null) {
                         total = player.getStatHandler().getStat(Stats.USED.getOrCreateStat(anvil));
                     }

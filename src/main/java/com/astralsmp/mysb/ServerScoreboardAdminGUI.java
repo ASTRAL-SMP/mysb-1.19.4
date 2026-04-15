@@ -12,6 +12,7 @@ import net.minecraft.screen.ScreenHandlerType;
 import net.minecraft.screen.slot.Slot;
 import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.text.LiteralText;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 
@@ -41,7 +42,7 @@ public class ServerScoreboardAdminGUI implements GUIConstants {
         
         player.openHandledScreen(new net.minecraft.screen.SimpleNamedScreenHandlerFactory(
                 (syncId, playerInventory, playerEntity) -> new AdminScreenHandler(syncId, playerInventory, inventory, player, page),
-                Text.literal(page == AdminPage.STATS ? "統計管理" : "スコアボード管理")
+                new LiteralText(page == AdminPage.STATS ? "統計管理" : "スコアボード管理")
         ));
     }
     
@@ -50,12 +51,12 @@ public class ServerScoreboardAdminGUI implements GUIConstants {
         
         // Slot SLOT_SWITCH: スコアボード管理へ切り替え
         ItemStack switchButton = new ItemStack(Items.COMPASS);
-        switchButton.setCustomName(Text.literal("スコアボード管理へ").formatted(Formatting.AQUA));
+        switchButton.setCustomName(new LiteralText("スコアボード管理へ").formatted(Formatting.AQUA));
         inventory.setStack(SLOT_SWITCH, switchButton);
 
         // Slot SLOT_CLOSE: Close button
         ItemStack closeButton = new ItemStack(Items.REDSTONE);
-        closeButton.setCustomName(Text.literal("閉じる").formatted(Formatting.RED));
+        closeButton.setCustomName(new LiteralText("閉じる").formatted(Formatting.RED));
         inventory.setStack(SLOT_CLOSE, closeButton);
         
         // Get all available stats
@@ -66,13 +67,13 @@ public class ServerScoreboardAdminGUI implements GUIConstants {
         // Navigation
         if (page > 0) {
             ItemStack prevButton = new ItemStack(Items.ARROW);
-            prevButton.setCustomName(Text.literal("前のページ").formatted(Formatting.AQUA));
+            prevButton.setCustomName(new LiteralText("前のページ").formatted(Formatting.AQUA));
             inventory.setStack(SLOT_PREV, prevButton);
         }
 
         if ((page + 1) * ITEMS_PER_PAGE < statsList.size()) {
             ItemStack nextButton = new ItemStack(Items.ARROW);
-            nextButton.setCustomName(Text.literal("次のページ").formatted(Formatting.AQUA));
+            nextButton.setCustomName(new LiteralText("次のページ").formatted(Formatting.AQUA));
             inventory.setStack(SLOT_NEXT, nextButton);
         }
 
@@ -87,13 +88,13 @@ public class ServerScoreboardAdminGUI implements GUIConstants {
             boolean isEnabled = enabledStats.contains(statId);
 
             ItemStack statItem = new ItemStack(isEnabled ? Items.GOLDEN_APPLE : Items.APPLE);
-            statItem.setCustomName(Text.literal(displayName)
+            statItem.setCustomName(new LiteralText(displayName)
                     .formatted(isEnabled ? Formatting.GOLD : Formatting.GRAY));
             List<Text> lore = new ArrayList<>();
-            lore.add(Text.literal("ID: " + statId).formatted(Formatting.DARK_GRAY));
-            lore.add(Text.literal(isEnabled ? "有効" : "無効")
+            lore.add(new LiteralText("ID: " + statId).formatted(Formatting.DARK_GRAY));
+            lore.add(new LiteralText(isEnabled ? "有効" : "無効")
                     .formatted(isEnabled ? Formatting.GREEN : Formatting.RED));
-            lore.add(Text.literal("クリックで切り替え").formatted(Formatting.GRAY));
+            lore.add(new LiteralText("クリックで切り替え").formatted(Formatting.GRAY));
             statItem.setNbt(statItem.getOrCreateNbt());
 
             inventory.setStack(SLOT_ITEMS_START + (i - startIndex), statItem);
@@ -103,7 +104,7 @@ public class ServerScoreboardAdminGUI implements GUIConstants {
         for (int i = 0; i < GUI_SIZE; i++) {
             if (inventory.getStack(i).isEmpty()) {
                 ItemStack glassPane = new ItemStack(Items.GRAY_STAINED_GLASS_PANE);
-                glassPane.setCustomName(Text.literal(" "));
+                glassPane.setCustomName(new LiteralText(" "));
                 inventory.setStack(i, glassPane);
             }
         }
@@ -114,12 +115,12 @@ public class ServerScoreboardAdminGUI implements GUIConstants {
         
         // Slot SLOT_SWITCH: 統計管理へ切り替え
         ItemStack switchButton = new ItemStack(Items.BOOK);
-        switchButton.setCustomName(Text.literal("統計管理へ").formatted(Formatting.AQUA));
+        switchButton.setCustomName(new LiteralText("統計管理へ").formatted(Formatting.AQUA));
         inventory.setStack(SLOT_SWITCH, switchButton);
 
         // Slot SLOT_CLOSE: Close button
         ItemStack closeButton = new ItemStack(Items.REDSTONE);
-        closeButton.setCustomName(Text.literal("閉じる").formatted(Formatting.RED));
+        closeButton.setCustomName(new LiteralText("閉じる").formatted(Formatting.RED));
         inventory.setStack(SLOT_CLOSE, closeButton);
         
         // Get objectives list
@@ -128,13 +129,13 @@ public class ServerScoreboardAdminGUI implements GUIConstants {
         // Navigation
         if (page > 0) {
             ItemStack prevButton = new ItemStack(Items.ARROW);
-            prevButton.setCustomName(Text.literal("前のページ").formatted(Formatting.AQUA));
+            prevButton.setCustomName(new LiteralText("前のページ").formatted(Formatting.AQUA));
             inventory.setStack(SLOT_PREV, prevButton);
         }
 
         if ((page + 1) * ITEMS_PER_PAGE < objectives.size()) {
             ItemStack nextButton = new ItemStack(Items.ARROW);
-            nextButton.setCustomName(Text.literal("次のページ").formatted(Formatting.AQUA));
+            nextButton.setCustomName(new LiteralText("次のページ").formatted(Formatting.AQUA));
             inventory.setStack(SLOT_NEXT, nextButton);
         }
 
@@ -145,7 +146,7 @@ public class ServerScoreboardAdminGUI implements GUIConstants {
         for (int i = startIndex; i < endIndex; i++) {
             String objective = objectives.get(i);
             ItemStack objectiveItem = new ItemStack(Items.PAPER);
-            objectiveItem.setCustomName(Text.literal(objective).formatted(Formatting.WHITE));
+            objectiveItem.setCustomName(new LiteralText(objective).formatted(Formatting.WHITE));
             inventory.setStack(SLOT_ITEMS_START + (i - startIndex), objectiveItem);
         }
 
@@ -153,7 +154,7 @@ public class ServerScoreboardAdminGUI implements GUIConstants {
         for (int i = 0; i < GUI_SIZE; i++) {
             if (inventory.getStack(i).isEmpty()) {
                 ItemStack glassPane = new ItemStack(Items.GRAY_STAINED_GLASS_PANE);
-                glassPane.setCustomName(Text.literal(" "));
+                glassPane.setCustomName(new LiteralText(" "));
                 inventory.setStack(i, glassPane);
             }
         }
@@ -188,7 +189,7 @@ public class ServerScoreboardAdminGUI implements GUIConstants {
         }
         
         @Override
-        public ItemStack quickMove(PlayerEntity player, int slot) {
+        public ItemStack transferSlot(PlayerEntity player, int slot) {
             return ItemStack.EMPTY;
         }
         
@@ -274,13 +275,13 @@ public class ServerScoreboardAdminGUI implements GUIConstants {
                         if (enabledStats.contains(statId)) {
                             // 現在有効なので無効化
                             TotalStatsManager.disableStat(statId);
-                            player.sendMessage(Text.literal("統計「" + statId + "」を無効化しました")
-                                    .formatted(Formatting.RED));
+                            player.sendMessage(new LiteralText("統計「" + statId + "」を無効化しました")
+                                    .formatted(Formatting.RED), false);
                         } else {
                             // 現在無効なので有効化
                             TotalStatsManager.enableStat(statId);
-                            player.sendMessage(Text.literal("統計「" + statId + "」を有効化しました")
-                                    .formatted(Formatting.GREEN));
+                            player.sendMessage(new LiteralText("統計「" + statId + "」を有効化しました")
+                                    .formatted(Formatting.GREEN), false);
                         }
 
                         // GUIを更新
@@ -293,12 +294,12 @@ public class ServerScoreboardAdminGUI implements GUIConstants {
                     if (itemIndex < objectives.size()) {
                         String objective = objectives.get(itemIndex);
                         // ここでは特に何もしない（将来の拡張用）
-                        player.sendMessage(Text.literal("スコアボード: " + objective).formatted(Formatting.AQUA));
+                        player.sendMessage(new LiteralText("スコアボード: " + objective).formatted(Formatting.AQUA), false);
                     }
                 }
             } catch (Exception e) {
                 ServerScoreboardLogger.error("Error handling item selection in admin GUI", e);
-                player.sendMessage(Text.literal("エラーが発生しました").formatted(Formatting.RED));
+                player.sendMessage(new LiteralText("エラーが発生しました").formatted(Formatting.RED), false);
             }
         }
         

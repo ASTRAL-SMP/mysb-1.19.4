@@ -5,7 +5,7 @@ import com.astralsmp.mysb.discord.DiscordConfig;
 import com.astralsmp.mysb.discord.DiscordScheduler;
 import com.astralsmp.mysb.discord.DiscordStatsPublisher;
 import net.fabricmc.api.DedicatedServerModInitializer;
-import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.fabricmc.fabric.api.command.v1.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
@@ -14,7 +14,7 @@ import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.network.ServerPlayNetworkHandler;
 import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
-import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
+import net.fabricmc.fabric.api.entity.event.v1.ServerEntityCombatEvents;
 import net.fabricmc.fabric.api.event.player.UseItemCallback;
 import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
 import net.minecraft.util.ActionResult;
@@ -37,7 +37,7 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
         // サーバーサイドの初期化のみ
         
         // コマンド登録
-        CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
+        CommandRegistrationCallback.EVENT.register((dispatcher, dedicated) -> {
             ServerScoreboardCommands.register(dispatcher);
         });
 
@@ -90,8 +90,8 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
             return ActionResult.PASS;
         });
         
-        ServerLivingEntityEvents.AFTER_DEATH.register((entity, damageSource) -> {
-            // エンティティ死亡時の統計更新（バルクなし、即座実行）
+        ServerEntityCombatEvents.AFTER_KILLED_OTHER_ENTITY.register((world, entity, killedEntity) -> {
+            // キル関連の統計更新（バルクなし、即座実行）
             TotalStatsManager.scheduleInstantUpdate();
         });
         
