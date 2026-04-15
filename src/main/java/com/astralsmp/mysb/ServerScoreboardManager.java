@@ -30,7 +30,6 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Set;
 import java.util.HashSet;
-import java.util.Objects;
 
 public class ServerScoreboardManager {
     private static final Map<UUID, PlayerScoreboardData> playerData = new ConcurrentHashMap<>();
@@ -38,8 +37,8 @@ public class ServerScoreboardManager {
     private static final Map<UUID, CustomScoreboardData> customScoreboardData = new ConcurrentHashMap<>();
     private static final Map<UUID, ScoreboardTransformData> transformData = new ConcurrentHashMap<>();
     private static final Set<UUID> playersToUpdate = new HashSet<>();
-    // スコアボードキャッシュ: プレイヤーUUID -> オブジェクティブ名 -> プレイヤー名 -> スコア値
-    private static final Map<UUID, Map<String, Map<String, Integer>>> playerScoreboardCache = new ConcurrentHashMap<>();
+    // スコアボードキャッシュ: プレイヤーUUID -> オブジェクティブ名 -> プレイヤー名 -> 直近送信したスコアエントリ
+    private static final Map<UUID, Map<String, Map<String, ScoreboardEntry>>> playerScoreboardCache = new ConcurrentHashMap<>();
     // プレイヤー毎の現在表示中のオブジェクティブを追跡
     private static final Map<UUID, String> playerActiveObjectives = new ConcurrentHashMap<>();
     // スコアボード表示保持システム
@@ -337,7 +336,7 @@ public class ServerScoreboardManager {
                     player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardDisplayS2CPacket(ScoreboardDisplaySlot.SIDEBAR, objective));
                     
                     // 3. キャッシュをクリアして初期同期
-                    Map<String, Map<String, Integer>> playerCache = playerScoreboardCache.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>());
+                    Map<String, Map<String, ScoreboardEntry>> playerCache = playerScoreboardCache.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>());
                     playerCache.remove(objectiveName);
                     
                     // 4. 全スコアを送信（永続表示の基盤）
@@ -578,13 +577,7 @@ public class ServerScoreboardManager {
             
             // 全スコアを再送信
             scoreboard.getScoreboardEntries(sidebarObjective).forEach(score -> {
-                player.networkHandler.sendPacket(new ScoreboardScoreUpdateS2CPacket(
-                    score.owner(),
-                    sidebarObjective.getName(),
-                    score.value(),
-                    Optional.empty(),
-                    Optional.empty()
-                ));
+                sendScoreUpdatePacket(player, sidebarObjective.getName(), score);
             });
             
             // サイドバーに表示
@@ -837,6 +830,16 @@ public class ServerScoreboardManager {
         // これにより他のパケットの影響でスコアボードが消えることを防ぐ
         player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardDisplayS2CPacket(ScoreboardDisplaySlot.SIDEBAR, objective));
     }
+
+    private static void sendScoreUpdatePacket(ServerPlayerEntity player, String objectiveName, ScoreboardEntry entry) {
+        player.networkHandler.sendPacket(new ScoreboardScoreUpdateS2CPacket(
+            entry.owner(),
+            objectiveName,
+            entry.value(),
+            Optional.ofNullable(entry.display()),
+            Optional.ofNullable(entry.numberFormatOverride())
+        ));
+    }
     
     // 最小限のスコア更新（通信量最適化版）
     private static void sendMinimalScoreUpdate(ServerPlayerEntity player, ScoreboardObjective objective, boolean forceFullSync) {
@@ -844,8 +847,8 @@ public class ServerScoreboardManager {
         String objectiveName = objective.getName();
         
         // プレイヤーのスコアキャッシュを取得
-        Map<String, Map<String, Integer>> playerCache = playerScoreboardCache.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>());
-        Map<String, Integer> objectiveCache = playerCache.computeIfAbsent(objectiveName, k -> new ConcurrentHashMap<>());
+        Map<String, Map<String, ScoreboardEntry>> playerCache = playerScoreboardCache.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>());
+        Map<String, ScoreboardEntry> objectiveCache = playerCache.computeIfAbsent(objectiveName, k -> new ConcurrentHashMap<>());
         
         // 現在のスコアを取得
         Collection<ScoreboardEntry> currentScores = server.getScoreboard().getScoreboardEntries(objective);
@@ -855,20 +858,13 @@ public class ServerScoreboardManager {
         // スコア変更のみ送信（バニラと同じ動作）
         for (ScoreboardEntry score : currentScores) {
             String playerName = score.owner();
-            int currentValue = score.value();
             currentPlayerNames.add(playerName);
             
-            Integer cachedValue = objectiveCache.get(playerName);
-            if (forceFullSync || cachedValue == null || !cachedValue.equals(currentValue)) {
+            ScoreboardEntry cachedEntry = objectiveCache.get(playerName);
+            if (forceFullSync || cachedEntry == null || !cachedEntry.equals(score)) {
                 // スコア更新パケットのみ（表示パケットは送信しない）
-                player.networkHandler.sendPacket(new ScoreboardScoreUpdateS2CPacket(
-                    playerName,
-                    objectiveName,
-                    currentValue,
-                    Optional.empty(),
-                    Optional.empty()
-                ));
-                objectiveCache.put(playerName, currentValue);
+                sendScoreUpdatePacket(player, objectiveName, score);
+                objectiveCache.put(playerName, score);
                 packetCount++;
             }
         }
@@ -907,8 +903,8 @@ public class ServerScoreboardManager {
         }
         
         // プレイヤーのスコアキャッシュを取得または作成
-        Map<String, Map<String, Integer>> playerCache = playerScoreboardCache.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>());
-        Map<String, Integer> objectiveCache = playerCache.computeIfAbsent(objectiveName, k -> new ConcurrentHashMap<>());
+        Map<String, Map<String, ScoreboardEntry>> playerCache = playerScoreboardCache.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>());
+        Map<String, ScoreboardEntry> objectiveCache = playerCache.computeIfAbsent(objectiveName, k -> new ConcurrentHashMap<>());
         
         // 現在のスコアデータを取得
         Collection<ScoreboardEntry> currentScores = server.getScoreboard().getScoreboardEntries(objective);
@@ -919,20 +915,13 @@ public class ServerScoreboardManager {
         // 更新または新規追加されたスコアのみを送信
         for (ScoreboardEntry score : currentScores) {
             String playerName = score.owner();
-            int currentScore = score.value();
             currentPlayerNames.add(playerName);
             
-            Integer cachedScore = objectiveCache.get(playerName);
-            if (cachedScore == null || !cachedScore.equals(currentScore)) {
+            ScoreboardEntry cachedEntry = objectiveCache.get(playerName);
+            if (cachedEntry == null || !cachedEntry.equals(score)) {
                 // 変更があった場合のみパケットを送信（制限なし）
-                player.networkHandler.sendPacket(new ScoreboardScoreUpdateS2CPacket(
-                    playerName,
-                    objectiveName,
-                    currentScore,
-                    Optional.empty(),
-                    Optional.empty()
-                ));
-                objectiveCache.put(playerName, currentScore);
+                sendScoreUpdatePacket(player, objectiveName, score);
+                objectiveCache.put(playerName, score);
                 updateCount++;
             }
         }
@@ -962,7 +951,7 @@ public class ServerScoreboardManager {
     
     // 特定のオブジェクティブのキャッシュをクリア
     public static void clearObjectiveCache(String objectiveName) {
-        for (Map<String, Map<String, Integer>> playerCache : playerScoreboardCache.values()) {
+        for (Map<String, Map<String, ScoreboardEntry>> playerCache : playerScoreboardCache.values()) {
             playerCache.remove(objectiveName);
         }
     }

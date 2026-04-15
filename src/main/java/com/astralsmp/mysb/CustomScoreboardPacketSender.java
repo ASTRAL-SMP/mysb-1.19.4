@@ -4,9 +4,11 @@ import net.minecraft.network.packet.s2c.play.ScoreboardDisplayS2CPacket;
 import net.minecraft.network.packet.s2c.play.ScoreboardObjectiveUpdateS2CPacket;
 import net.minecraft.network.packet.s2c.play.ScoreboardScoreResetS2CPacket;
 import net.minecraft.network.packet.s2c.play.ScoreboardScoreUpdateS2CPacket;
+import net.minecraft.scoreboard.ReadableScoreboardScore;
 import net.minecraft.scoreboard.ScoreAccess;
 import net.minecraft.scoreboard.ScoreboardCriterion;
 import net.minecraft.scoreboard.ScoreboardDisplaySlot;
+import net.minecraft.scoreboard.ScoreboardEntry;
 import net.minecraft.scoreboard.ScoreHolder;
 import net.minecraft.scoreboard.ScoreboardObjective;
 import net.minecraft.scoreboard.ServerScoreboard;
@@ -18,8 +20,8 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class CustomScoreboardPacketSender {
-    // プレイヤー毎の変換済みスコアボードキャッシュ: プレイヤーUUID -> オブジェクティブ名 -> プレイヤー名 -> スコア値
-    private static final Map<String, Map<String, Map<String, Integer>>> transformedScoreCache = new ConcurrentHashMap<>();
+    // プレイヤー毎の変換済みスコアボードキャッシュ: プレイヤーUUID -> オブジェクティブ名 -> プレイヤー名 -> 直近送信した変換済みエントリ
+    private static final Map<String, Map<String, Map<String, ScoreboardEntry>>> transformedScoreCache = new ConcurrentHashMap<>();
     
     // バニラのスコアボードを変換して送信する（サーバー側データを変更しない）
     public static void sendTransformedScoreboard(ServerPlayerEntity player, String originalObjectiveName, ScoreboardTransformData transformData) {
@@ -29,6 +31,9 @@ public class CustomScoreboardPacketSender {
         ServerScoreboard serverScoreboard = server.getScoreboard();
         ScoreboardObjective originalObjective = serverScoreboard.getNullableObjective(originalObjectiveName);
         if (originalObjective == null) return;
+        Map<String, ScoreboardEntry> originalEntries = new HashMap<>();
+        serverScoreboard.getScoreboardEntries(originalObjective)
+            .forEach(entry -> originalEntries.put(entry.owner(), entry));
         
         // 変換された表示名を取得
         String transformedDisplayName = transformData.getTransformedDisplayName(originalObjectiveName);
@@ -44,7 +49,8 @@ public class CustomScoreboardPacketSender {
             virtualObjectiveName,
             originalObjective.getCriterion(),
             Text.literal(transformedDisplayName),
-            originalObjective.getRenderType()
+            originalObjective.getRenderType(),
+            originalObjective.getNumberFormat()
         );
         
         // プレイヤーにオブジェクティブを送信
@@ -63,22 +69,14 @@ public class CustomScoreboardPacketSender {
             ScoreboardObjective objective = scoreboard.getNullableObjective(originalObjectiveName);
             if (objective != null) {
                 Map<String, Integer> memoryScoreData = new HashMap<>();
-                server.getPlayerManager().getPlayerList().forEach(serverPlayer -> {
-                    String playerName = serverPlayer.getName().getString();
-                    try {
-                        ScoreAccess scoreAccess = serverScoreboard.getOrCreateScore(ScoreHolder.fromName(playerName), objective);
-                        int originalScore = scoreAccess.getScore();
-                        memoryScoreData.put(playerName, originalScore);
-                    } catch (Exception e) {
-                        // プレイヤーがスコアを持っていない場合はスキップ
-                    }
-                });
+                scoreboard.getScoreboardEntries(objective)
+                    .forEach(entry -> memoryScoreData.put(entry.owner(), entry.value()));
                 // 差分変換スコアボード送信
-                sendDifferentialTransformedScores(player, virtualObjectiveName, originalObjectiveName, memoryScoreData, transformData);
+                sendDifferentialTransformedScores(player, virtualObjectiveName, originalObjectiveName, memoryScoreData, originalEntries, transformData);
             }
         } else {
             // 差分変換スコアボード送信
-            sendDifferentialTransformedScores(player, virtualObjectiveName, originalObjectiveName, scoreData, transformData);
+            sendDifferentialTransformedScores(player, virtualObjectiveName, originalObjectiveName, scoreData, originalEntries, transformData);
         }
         
         ServerScoreboardLogger.info("Sent virtual transformed scoreboard " + originalObjectiveName + " to player " + player.getName().getString());
@@ -87,6 +85,7 @@ public class CustomScoreboardPacketSender {
     // 差分変換スコアボード送信（パケット数削減）
     private static void sendDifferentialTransformedScores(ServerPlayerEntity player, String virtualObjectiveName, 
                                                          String originalObjectiveName, Map<String, Integer> scoreData, 
+                                                         Map<String, ScoreboardEntry> originalEntries,
                                                          ScoreboardTransformData transformData) {
         // レート制限チェック（DDOS対策）
         if (!RateLimiter.canSendScoreboardPacket(player.getUuid())) {
@@ -97,8 +96,8 @@ public class CustomScoreboardPacketSender {
         String playerUuid = player.getUuidAsString();
         
         // プレイヤーの変換済みスコアキャッシュを取得または作成
-        Map<String, Map<String, Integer>> playerCache = transformedScoreCache.computeIfAbsent(playerUuid, k -> new ConcurrentHashMap<>());
-        Map<String, Integer> objectiveCache = playerCache.computeIfAbsent(originalObjectiveName, k -> new ConcurrentHashMap<>());
+        Map<String, Map<String, ScoreboardEntry>> playerCache = transformedScoreCache.computeIfAbsent(playerUuid, k -> new ConcurrentHashMap<>());
+        Map<String, ScoreboardEntry> objectiveCache = playerCache.computeIfAbsent(originalObjectiveName, k -> new ConcurrentHashMap<>());
         
         Set<String> currentPlayerNames = new HashSet<>();
         int updateCount = 0;
@@ -109,20 +108,21 @@ public class CustomScoreboardPacketSender {
             String playerName = entry.getKey();
             int originalScore = entry.getValue();
             int transformedScore = transformData.getTransformedScoreValue(originalObjectiveName, playerName, originalScore);
+            ScoreboardEntry transformedEntry = createTransformedEntry(playerName, transformedScore, originalEntries.get(playerName));
             currentPlayerNames.add(playerName);
             
-            Integer cachedScore = objectiveCache.get(playerName);
-            if (cachedScore == null || !cachedScore.equals(transformedScore)) {
+            ScoreboardEntry cachedEntry = objectiveCache.get(playerName);
+            if (cachedEntry == null || !cachedEntry.equals(transformedEntry)) {
                 // 変更があった場合のみパケットを送信（レート制限チェック付き）
                 if (RateLimiter.canSendPacket(player.getUuid())) {
                     player.networkHandler.sendPacket(new ScoreboardScoreUpdateS2CPacket(
-                        playerName,
+                        transformedEntry.owner(),
                         virtualObjectiveName,
-                        transformedScore,
-                        Optional.empty(),
-                        Optional.empty()
+                        transformedEntry.value(),
+                        Optional.ofNullable(transformedEntry.display()),
+                        Optional.ofNullable(transformedEntry.numberFormatOverride())
                     ));
-                    objectiveCache.put(playerName, transformedScore);
+                    objectiveCache.put(playerName, transformedEntry);
                     updateCount++;
                 } else {
                 }
@@ -159,7 +159,8 @@ public class CustomScoreboardPacketSender {
                         virtualObjectiveName,
                         originalObjective.getCriterion(),
                         originalObjective.getDisplayName(),
-                        originalObjective.getRenderType()
+                        originalObjective.getRenderType(),
+                        originalObjective.getNumberFormat()
                     );
                     player.networkHandler.sendPacket(new ScoreboardDisplayS2CPacket(ScoreboardDisplaySlot.SIDEBAR, virtualObjective));
                 }
@@ -169,9 +170,19 @@ public class CustomScoreboardPacketSender {
     
     // 仮想オブジェクティブクラス（サーバー側スコアボードに影響しない）
     private static class VirtualObjective extends ScoreboardObjective {
-        public VirtualObjective(String name, ScoreboardCriterion criterion, Text displayName, ScoreboardCriterion.RenderType renderType) {
-            super(null, name, criterion, displayName, renderType, false, null);
+        public VirtualObjective(String name, ScoreboardCriterion criterion, Text displayName, ScoreboardCriterion.RenderType renderType,
+                                net.minecraft.scoreboard.number.NumberFormat numberFormat) {
+            super(null, name, criterion, displayName, renderType, false, numberFormat);
         }
+    }
+
+    private static ScoreboardEntry createTransformedEntry(String playerName, int transformedScore, ScoreboardEntry originalEntry) {
+        return new ScoreboardEntry(
+            playerName,
+            transformedScore,
+            originalEntry != null ? originalEntry.display() : null,
+            originalEntry != null ? originalEntry.numberFormatOverride() : null
+        );
     }
     
     public static void clearTransformedScoreboard(ServerPlayerEntity player) {
@@ -182,7 +193,8 @@ public class CustomScoreboardPacketSender {
             virtualObjectiveName,
             ScoreboardCriterion.DUMMY,
             Text.literal(""),
-            ScoreboardCriterion.RenderType.INTEGER
+            ScoreboardCriterion.RenderType.INTEGER,
+            null
         );
         
         // サイドバーをクリア
@@ -204,7 +216,7 @@ public class CustomScoreboardPacketSender {
     
     // 特定のオブジェクティブの変換済みキャッシュをクリア
     public static void clearTransformedObjectiveCache(String objectiveName) {
-        for (Map<String, Map<String, Integer>> playerCache : transformedScoreCache.values()) {
+        for (Map<String, Map<String, ScoreboardEntry>> playerCache : transformedScoreCache.values()) {
             playerCache.remove(objectiveName);
         }
     }
@@ -254,14 +266,16 @@ public class CustomScoreboardPacketSender {
         // カスタムスコアを送信（レート制限付き）
         for (Map.Entry<String, Integer> entry : data.getCustomScores().entrySet()) {
             if (RateLimiter.canSendPacket(player.getUuid())) {
-                ScoreAccess scoreAccess = scoreboard.getOrCreateScore(ScoreHolder.fromName(entry.getKey()), objective);
+                ScoreHolder scoreHolder = ScoreHolder.fromName(entry.getKey());
+                ScoreAccess scoreAccess = scoreboard.getOrCreateScore(scoreHolder, objective);
                 scoreAccess.setScore(entry.getValue());
+                ReadableScoreboardScore readableScore = scoreboard.getScore(scoreHolder, objective);
                 player.networkHandler.sendPacket(new ScoreboardScoreUpdateS2CPacket(
                     entry.getKey(),
                     objectiveName,
                     entry.getValue(),
-                    Optional.empty(),
-                    Optional.empty()
+                    Optional.ofNullable(scoreAccess.getDisplayText()),
+                    Optional.ofNullable(readableScore != null ? readableScore.getNumberFormat() : null)
                 ));
             } else {
                 break; // レート制限に達したら停止
