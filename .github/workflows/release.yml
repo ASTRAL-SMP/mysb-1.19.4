@@ -23,11 +23,18 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up JDK 17
+      - name: Determine required Java version
+        id: java
+        run: |
+          RELEASE=$(grep -oE 'options\.release\s*=\s*[0-9]+' build.gradle | grep -oE '[0-9]+' | head -1)
+          echo "version=${RELEASE:-17}" >> "$GITHUB_OUTPUT"
+          echo "Using Java ${RELEASE:-17} for this branch"
+
+      - name: Set up JDK
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: ${{ steps.java.outputs.version }}
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
