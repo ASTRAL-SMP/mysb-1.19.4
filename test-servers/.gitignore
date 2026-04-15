@@ -1,0 +1,14 @@
+# 実行時に生成されるファイル
+*/server.jar
+*/world/
+*/logs/
+*/crash-reports/
+*/banned-*.json
+*/ops.json
+*/usercache.json
+*/whitelist.json
+*/versions/
+*/libraries/
+*/.fabric/
+*/mods/*.jar
+!*/mods/.gitkeep
