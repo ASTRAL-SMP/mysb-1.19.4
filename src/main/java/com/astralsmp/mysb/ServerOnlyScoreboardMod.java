@@ -18,7 +18,6 @@ import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.fabricmc.fabric.api.event.player.UseItemCallback;
 import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
 import net.minecraft.util.ActionResult;
-import net.minecraft.util.TypedActionResult;
 import net.fabricmc.loader.api.FabricLoader;
 import java.util.UUID;
 
@@ -101,7 +100,7 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
                 // アイテム使用時の統計更新（即座実行）
                 TotalStatsManager.scheduleInstantUpdate();
             }
-            return TypedActionResult.pass(player.getStackInHand(hand));
+            return ActionResult.PASS;
         });
         
         // エンティティ攻撃時のイベント（キル統計用）
