@@ -126,7 +126,15 @@ DISCORD_ENABLED_placed=false
   - 除外プレイヤー（UUID）のリスト
   - カスタム追加された統計定義（id / displayName / statType）
 
-どちらも NBT バイナリなので手で編集するのは推奨しない。変更したいときはコマンドや GUI を使うこと。
+### `<world>/config/mysb/monthly_area_stats.dat`
+
+- **書き込み元**: `MonthlyAreaStatsManager`
+- **保存内容**:
+  - チャンク範囲定義（id / displayName / dimension / minChunkX / minChunkZ / maxChunkX / maxChunkZ）
+  - 月別・プレイヤー別の範囲内採掘数と設置数
+  - スコアボードに表示中の月（`yyyy-MM`）
+
+これらは NBT バイナリなので手で編集するのは推奨しない。変更したいときはコマンドや GUI を使うこと。
 
 ---
 
@@ -150,6 +158,7 @@ DISCORD_ENABLED_placed=false
 |--------|-----------|
 | `player_scoreboards.dat` | 5 分ごと + サーバー停止時 |
 | `total_stats_config.dat` | コマンド実行による変更時 + サーバー停止時 |
+| `monthly_area_stats.dat` | 範囲作成/削除・表示月変更・対象範囲内の採掘/設置があった後の 5 分ごと + サーバー停止時 |
 | `auto_transform.json` | 明示的な保存 API が呼ばれたとき |
 | `player_stats_cache.json` | 5 分ごと + サーバー停止時 |
 | `discord_config.properties` | 値の変更時に debounced で非同期 + サーバー停止時 |

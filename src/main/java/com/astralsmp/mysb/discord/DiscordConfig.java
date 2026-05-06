@@ -184,7 +184,7 @@ public class DiscordConfig {
     public static String getToken() {
         String token = properties.getProperty(KEY_DISCORD_TOKEN, "");
         if (token.isEmpty() || "YOUR_BOT_TOKEN_HERE".equals(token)) {
-            return null;
+            return AstHubBridge.getSharedTokenOrNull();
         }
         return token;
     }
