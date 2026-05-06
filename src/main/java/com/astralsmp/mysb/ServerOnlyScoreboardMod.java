@@ -4,6 +4,7 @@ import com.astralsmp.mysb.discord.DiscordBot;
 import com.astralsmp.mysb.discord.DiscordConfig;
 import com.astralsmp.mysb.discord.DiscordScheduler;
 import com.astralsmp.mysb.discord.DiscordStatsPublisher;
+import com.astralsmp.mysb.discord.AstHubBridge;
 import net.fabricmc.api.DedicatedServerModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
@@ -20,11 +21,17 @@ import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.TypedActionResult;
 import net.fabricmc.loader.api.FabricLoader;
+import net.minecraft.block.BlockState;
+import net.minecraft.item.BlockItem;
+import net.minecraft.item.ItemPlacementContext;
+import net.minecraft.item.ItemStack;
+import net.minecraft.server.world.ServerWorld;
+import net.minecraft.util.math.BlockPos;
 import java.util.UUID;
 
 public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
     public static final String MOD_ID = "mysb";
-    
+
     public static String getModVersion() {
         return FabricLoader.getInstance()
                 .getModContainer(MOD_ID)
@@ -35,7 +42,7 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
     @Override
     public void onInitializeServer() {
         // サーバーサイドの初期化のみ
-        
+
         // コマンド登録
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
             ServerScoreboardCommands.register(dispatcher);
@@ -53,15 +60,17 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
 
         // サーバーティック処理（定期的な同期など）
         ServerTickEvents.END_SERVER_TICK.register(this::onServerTick);
-        
+
         // プレイヤーのアクションイベント（統計のリアルタイム更新用）
         PlayerBlockBreakEvents.AFTER.register((world, player, pos, state, entity) -> {
             if (!world.isClient && player instanceof ServerPlayerEntity) {
-                
+                MonthlyAreaStatsManager.recordBlockMined((ServerPlayerEntity) player, pos);
+
+
                 // バルク更新システムを使用
                 UUID playerId = ((ServerPlayerEntity) player).getUuid();
                 boolean needsBulkUpdate = BulkUpdateManager.recordUpdate(playerId, "block_break");
-                
+
                 if (needsBulkUpdate) {
                     // バルク処理を実行
                     BulkUpdateManager.executeBulkUpdate(playerId);
@@ -71,14 +80,28 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
                 }
             }
         });
-        
+
         UseBlockCallback.EVENT.register((player, world, hand, hitResult) -> {
-            if (!world.isClient && player instanceof ServerPlayerEntity) {
-                
+            if (!world.isClient && player instanceof ServerPlayerEntity && world instanceof ServerWorld) {
+                ServerPlayerEntity serverPlayer = (ServerPlayerEntity) player;
+                ServerWorld serverWorld = (ServerWorld) world;
+                ItemStack stack = player.getStackInHand(hand);
+                if (stack.getItem() instanceof BlockItem) {
+                    ItemPlacementContext placementContext = new ItemPlacementContext(player, hand, stack, hitResult);
+                    BlockPos placePos = placementContext.getBlockPos();
+                    BlockState beforeState = serverWorld.getBlockState(placePos);
+                    serverWorld.getServer().execute(() -> {
+                        BlockState afterState = serverWorld.getBlockState(placePos);
+                        if (afterState.getBlock() != beforeState.getBlock()) {
+                            MonthlyAreaStatsManager.recordBlockPlaced(serverPlayer, placePos);
+                        }
+                    });
+                }
+
                 // バルク更新システムを使用（ブロック設置）
-                UUID playerId = ((ServerPlayerEntity) player).getUuid();
+                UUID playerId = serverPlayer.getUuid();
                 boolean needsBulkUpdate = BulkUpdateManager.recordUpdate(playerId, "block_place");
-                
+
                 if (needsBulkUpdate) {
                     // バルク処理を実行
                     BulkUpdateManager.executeBulkUpdate(playerId);
@@ -89,12 +112,12 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
             }
             return ActionResult.PASS;
         });
-        
+
         ServerLivingEntityEvents.AFTER_DEATH.register((entity, damageSource) -> {
             // エンティティ死亡時の統計更新（バルクなし、即座実行）
             TotalStatsManager.scheduleInstantUpdate();
         });
-        
+
         // アイテム使用時のイベント
         UseItemCallback.EVENT.register((player, world, hand) -> {
             if (!world.isClient && player instanceof ServerPlayerEntity) {
@@ -103,7 +126,7 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
             }
             return TypedActionResult.pass(player.getStackInHand(hand));
         });
-        
+
         // エンティティ攻撃時のイベント（キル統計用）
         AttackEntityCallback.EVENT.register((player, world, hand, entity, hitResult) -> {
             if (!world.isClient && player instanceof ServerPlayerEntity) {
@@ -127,13 +150,18 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
         // scoreboard.datファイルの読み込み（TotalStatsManager設定も含む）
         ServerScoreboardManager.loadScoreboardData(server);
 
+        // 月間範囲統計の初期化
+        MonthlyAreaStatsManager.init(server);
+
         // Discord連携の初期化
         DiscordConfig.initialize(server);
         DiscordStatsPublisher.initialize(server);
         DiscordScheduler.initialize(server);
 
-        // Discord Botの初期化（スラッシュコマンド用）
-        if (DiscordConfig.isBotEnabled()) {
+        // Discord Botの初期化（AST DiscordHub があれば共有botへ登録）
+        if (AstHubBridge.isAvailable()) {
+            AstHubBridge.register();
+        } else if (DiscordConfig.isBotEnabled()) {
             DiscordBot.initialize();
         }
         ServerScoreboardLogger.info("Discord integration initialized");
@@ -145,6 +173,7 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
 
         // サーバー停止時にデータを保存
         ServerScoreboardManager.saveScoreboardData(server);
+        MonthlyAreaStatsManager.save();
 
         // プレイヤー統計キャッシュを保存
         PlayerStatsCache.saveCache();
@@ -189,6 +218,7 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
         if (server.getTicks() % 6000 == 0) {
             PlayerStatsCache.saveCache();
             ServerScoreboardManager.saveScoreboardData(server);
+            MonthlyAreaStatsManager.saveIfDirty();
         }
 
         // Discordスケジューラのティック処理（1時間ごとの自動更新）

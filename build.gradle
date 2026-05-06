@@ -27,6 +27,9 @@ dependencies {
     mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
     modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
     modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+    compileOnly files('/home/nixos/AST-DiscordHub/build/devlibs/ast-discordhub-0.1.0-dev.jar')
+    compileOnly "org.scala-lang:scala-library:2.13.12"
+    compileOnly "org.scala-lang:scala3-library_3:3.3.3"
 
     // JDA (Discord Bot) and its transitive dependencies
     implementation("net.dv8tion:JDA:5.0.0-beta.18") {
