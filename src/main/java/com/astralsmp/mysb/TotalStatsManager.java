@@ -21,7 +21,6 @@ import net.minecraft.util.Identifier;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.regex.Pattern;
 
 public class TotalStatsManager {
     private static final String TOTAL_PREFIX = "total_";
@@ -44,7 +43,7 @@ public class TotalStatsManager {
     private static Set<Item> blockItemsCache = null;
 
     // 正規表現のプリコンパイル（パフォーマンス最適化）
-    private static final Pattern FAKE_PLAYER_PATTERN = Pattern.compile("fake[_\\-].*");
+    // FakePlayerDetector に委譲するため、ここでは保持しない
     
     // Common statistics - 指定された統計のみ
     public static final Map<String, String> COMMON_STATS = new HashMap<>();
@@ -228,11 +227,11 @@ public class TotalStatsManager {
             if (excludedPlayers.contains(playerName)) {
                 continue;
             }
-            // Fake Playerのスコア表示が無効化されている場合はスキップ
-            if (!ServerScoreboardConfig.FAKE_PLAYER_SCORE_ENABLED && isFakePlayer(playerName)) {
+            // Fake Playerのスコア表示が無効化されている場合はスキップ（エンティティクラスベース判定）
+            if (!ServerScoreboardConfig.FAKE_PLAYER_SCORE_ENABLED && FakePlayerDetector.isFakePlayer(player)) {
                 continue;
             }
-            
+
             int playerTotal = getPlayerStatTotal(player, config.statType);
             // 0でもキャッシュに保存（統計がリセットされた場合のため）
             playerStats.put(playerName, playerTotal);
@@ -585,29 +584,10 @@ public class TotalStatsManager {
     }
     
     public static boolean isFakePlayer(String playerName) {
-        // Carpetのfake playerやその他のbotプレイヤーを検出
-        // 一般的なfake playerの命名パターンをチェック
-        if (playerName == null || playerName.trim().isEmpty()) {
-            return false;
-        }
+        return FakePlayerDetector.isFakePlayerName(playerName);
+    }
 
-        String lowerName = playerName.toLowerCase();
-
-        // Carpetのfake playerパターン
-        if (lowerName.contains("fake_") || lowerName.startsWith("fake")) {
-            return true;
-        }
-
-        // その他のbotやfake playerパターン
-        if (lowerName.contains("bot") || lowerName.contains("_bot") || lowerName.endsWith("bot")) {
-            return true;
-        }
-
-        // carpet modのfake playerは通常 fake_<プレイヤー名> の形式（プリコンパイル済みPatternを使用）
-        if (FAKE_PLAYER_PATTERN.matcher(lowerName).matches()) {
-            return true;
-        }
-
-        return false;
+    public static boolean isFakePlayer(ServerPlayerEntity player) {
+        return FakePlayerDetector.isFakePlayer(player);
     }
 }

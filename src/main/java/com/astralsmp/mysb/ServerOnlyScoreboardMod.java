@@ -184,7 +184,10 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
 
     private void onPlayerJoin(net.minecraft.server.network.ServerPlayNetworkHandler handler, net.fabricmc.fabric.api.networking.v1.PacketSender sender, MinecraftServer server) {
         // プレイヤーログイン時の処理
-        ServerScoreboardManager.onPlayerJoin(handler.getPlayer());
+        ServerPlayerEntity joined = handler.getPlayer();
+        // Carpet fake player の場合はクラスベース判定で検出して登録
+        FakePlayerDetector.registerIfFakePlayer(joined);
+        ServerScoreboardManager.onPlayerJoin(joined);
     }
 
     private void onPlayerDisconnect(net.minecraft.server.network.ServerPlayNetworkHandler handler, MinecraftServer server) {

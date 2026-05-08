@@ -966,7 +966,7 @@ public class ServerScoreboardManager {
         if (statsConfigFile.exists()) {
             try {
                 NbtCompound nbt = NbtIo.readCompressed(statsConfigFile);
-                
+
                 // 有効な統計を読み込み
                 if (nbt.contains("enabledStats")) {
                     NbtList enabledList = nbt.getList("enabledStats", 8); // 8 = String
@@ -975,7 +975,7 @@ public class ServerScoreboardManager {
                         TotalStatsManager.enableStat(statId);
                     }
                 }
-                
+
                 // 除外プレイヤーを読み込み
                 if (nbt.contains("excludedPlayers")) {
                     NbtList excludedList = nbt.getList("excludedPlayers", 8); // 8 = String
@@ -984,7 +984,20 @@ public class ServerScoreboardManager {
                         TotalStatsManager.excludePlayer(playerName);
                     }
                 }
-                
+
+                // Fake Player スコア表示設定を読み込み（再起動でリセットされないように永続化）
+                if (nbt.contains("fakePlayerScoreEnabled")) {
+                    ServerScoreboardConfig.FAKE_PLAYER_SCORE_ENABLED = nbt.getBoolean("fakePlayerScoreEnabled");
+                }
+
+                // 既知の Carpet fake player 名を読み込み（オフライン時の名前ベース判定用）
+                if (nbt.contains("knownFakePlayerNames")) {
+                    NbtList fakeList = nbt.getList("knownFakePlayerNames", 8);
+                    for (int i = 0; i < fakeList.size(); i++) {
+                        FakePlayerDetector.addKnownFakePlayerName(fakeList.getString(i));
+                    }
+                }
+
             } catch (IOException e) {
                 ServerScoreboardLogger.error("Failed to load total stats config", e);
             }
@@ -994,23 +1007,33 @@ public class ServerScoreboardManager {
     
     private static void saveTotalStatsConfig(Path configDir) {
         File statsConfigFile = configDir.resolve("total_stats_config.dat").toFile();
-        
+
         NbtCompound nbt = new NbtCompound();
-        
+
         // 有効な統計を保存
         NbtList enabledList = new NbtList();
         for (String statId : TotalStatsManager.getEnabledStats()) {
             enabledList.add(NbtString.of(statId));
         }
         nbt.put("enabledStats", enabledList);
-        
+
         // 除外プレイヤーを保存
         NbtList excludedList = new NbtList();
         for (String playerName : TotalStatsManager.getExcludedPlayers()) {
             excludedList.add(NbtString.of(playerName));
         }
         nbt.put("excludedPlayers", excludedList);
-        
+
+        // Fake Player スコア表示設定を保存（再起動後も維持）
+        nbt.putBoolean("fakePlayerScoreEnabled", ServerScoreboardConfig.FAKE_PLAYER_SCORE_ENABLED);
+
+        // 既知の Carpet fake player 名を保存
+        NbtList fakeList = new NbtList();
+        for (String name : FakePlayerDetector.getKnownFakePlayerNames()) {
+            fakeList.add(NbtString.of(name));
+        }
+        nbt.put("knownFakePlayerNames", fakeList);
+
         try {
             NbtIo.writeCompressed(nbt, statsConfigFile);
         } catch (IOException e) {

@@ -16,6 +16,20 @@ import java.util.concurrent.ConcurrentHashMap;
 public class CustomScoreboardPacketSender {
     // プレイヤー毎の変換済みスコアボードキャッシュ: プレイヤーUUID -> オブジェクティブ名 -> プレイヤー名 -> スコア値
     private static final Map<String, Map<String, Map<String, Integer>>> transformedScoreCache = new ConcurrentHashMap<>();
+
+    // Fake Player除外フィルタ（FAKE_PLAYER_SCORE_ENABLED が false の場合のみ除外）
+    private static Map<String, Integer> filterFakePlayers(Map<String, Integer> source) {
+        if (ServerScoreboardConfig.FAKE_PLAYER_SCORE_ENABLED || source == null || source.isEmpty()) {
+            return source;
+        }
+        Map<String, Integer> filtered = new HashMap<>(source.size());
+        for (Map.Entry<String, Integer> entry : source.entrySet()) {
+            if (!FakePlayerDetector.isFakePlayerName(entry.getKey())) {
+                filtered.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return filtered;
+    }
     
     // バニラのスコアボードを変換して送信する（サーバー側データを変更しない）
     public static void sendTransformedScoreboard(ServerPlayerEntity player, String originalObjectiveName, ScoreboardTransformData transformData) {
@@ -51,15 +65,21 @@ public class CustomScoreboardPacketSender {
         
         // scoreboard.datから直接スコアデータを読み込んで変換
         Map<String, Integer> scoreData = ScoreboardDataReader.getAllPlayersScoresForObjective(server, originalObjectiveName);
+        // Fake Playerが無効化されている場合は除外
+        scoreData = filterFakePlayers(scoreData);
         ServerScoreboardLogger.info("Found " + scoreData.size() + " scores for objective " + originalObjectiveName);
-        
+
         if (scoreData.isEmpty()) {
             // scoreboard.datにデータがない場合、サーバーメモリからデータを取得
             ServerScoreboard scoreboard = server.getScoreboard();
             ScoreboardObjective objective = scoreboard.getObjective(originalObjectiveName);
             if (objective != null) {
                 Map<String, Integer> memoryScoreData = new HashMap<>();
+                boolean filterFakePlayers = !ServerScoreboardConfig.FAKE_PLAYER_SCORE_ENABLED;
                 server.getPlayerManager().getPlayerList().forEach(serverPlayer -> {
+                    if (filterFakePlayers && FakePlayerDetector.isFakePlayer(serverPlayer)) {
+                        return;
+                    }
                     String playerName = serverPlayer.getName().getString();
                     try {
                         int originalScore = serverScoreboard.getPlayerScore(playerName, objective).getScore();

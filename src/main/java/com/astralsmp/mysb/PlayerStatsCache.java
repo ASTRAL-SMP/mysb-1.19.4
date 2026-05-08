@@ -82,17 +82,22 @@ public class PlayerStatsCache {
     // すべてのプレイヤーの特定の統計を取得
     public static Map<String, Integer> getAllPlayerStats(String statId) {
         Map<String, Integer> result = new HashMap<>();
-        
+        boolean filterFakePlayers = !ServerScoreboardConfig.FAKE_PLAYER_SCORE_ENABLED;
+
         // キャッシュされたデータから取得
         for (Map.Entry<String, Map<String, Integer>> entry : playerStatsCache.entrySet()) {
             String playerName = entry.getKey();
+            // Fake Playerが無効化されている場合は、過去にキャッシュされたbotのデータも除外
+            if (filterFakePlayers && FakePlayerDetector.isFakePlayerName(playerName)) {
+                continue;
+            }
             Map<String, Integer> playerStats = entry.getValue();
             int value = playerStats.getOrDefault(statId, 0);
             if (value > 0) {
                 result.put(playerName, value);
             }
         }
-        
+
         return result;
     }
     
