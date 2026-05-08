@@ -372,18 +372,27 @@ public class MonthlyAreaStatsManager {
             scoreboard.resetPlayerScore(oldScore.getPlayerName(), objective);
         }
 
+        boolean filterFakePlayers = !ServerScoreboardConfig.FAKE_PLAYER_SCORE_ENABLED;
         int total = 0;
-        for (PlayerMonthStats playerStats : stats.values()) {
-            total += mined ? playerStats.mined : playerStats.placed;
+        for (Map.Entry<String, PlayerMonthStats> entry : stats.entrySet()) {
+            // Fake Playerが無効化されている場合は、過去に記録された bot のデータも合計から除外
+            if (filterFakePlayers && FakePlayerDetector.isFakePlayerName(entry.getKey())) {
+                continue;
+            }
+            total += mined ? entry.getValue().mined : entry.getValue().placed;
         }
 
         ScoreboardPlayerScore totalScore = scoreboard.getPlayerScore(SERVER_TOTAL_NAME, objective);
         totalScore.setScore(total);
 
         for (Map.Entry<String, PlayerMonthStats> entry : stats.entrySet()) {
+            String playerName = entry.getKey();
+            if (filterFakePlayers && FakePlayerDetector.isFakePlayerName(playerName)) {
+                continue;
+            }
             int value = mined ? entry.getValue().mined : entry.getValue().placed;
             if (value > 0) {
-                scoreboard.getPlayerScore(entry.getKey(), objective).setScore(value);
+                scoreboard.getPlayerScore(playerName, objective).setScore(value);
             }
         }
     }

@@ -735,6 +735,10 @@ public class ServerScoreboardCommands {
     private static int enableFakePlayerScore(CommandContext<ServerCommandSource> context) {
         try {
             ServerScoreboardConfig.FAKE_PLAYER_SCORE_ENABLED = true;
+            // 設定を即座に永続化
+            ServerScoreboardManager.saveScoreboardData(context.getSource().getServer());
+            // 統計を即座に再計算（fake player を再表示するため）
+            TotalStatsManager.scheduleInstantUpdate();
 
             context.getSource().sendFeedback(
                 Text.literal("Fake Player のスコア表示を有効にしました").formatted(Formatting.GREEN),
@@ -752,6 +756,16 @@ public class ServerScoreboardCommands {
     private static int disableFakePlayerScore(CommandContext<ServerCommandSource> context) {
         try {
             ServerScoreboardConfig.FAKE_PLAYER_SCORE_ENABLED = false;
+            // 現在オンラインの Carpet fake player をすべて検出して既知リストに登録
+            for (ServerPlayerEntity online : context.getSource().getServer().getPlayerManager().getPlayerList()) {
+                FakePlayerDetector.registerIfFakePlayer(online);
+            }
+            // 設定を即座に永続化
+            ServerScoreboardManager.saveScoreboardData(context.getSource().getServer());
+            // 統計を即座に再計算（fake player のスコアをスコアボードから消すため）
+            TotalStatsManager.scheduleInstantUpdate();
+            // 月間範囲統計のスコアボードも再計算
+            MonthlyAreaStatsManager.updateAllScoreboards();
 
             context.getSource().sendFeedback(
                 Text.literal("Fake Player のスコア表示を無効にしました").formatted(Formatting.YELLOW),
