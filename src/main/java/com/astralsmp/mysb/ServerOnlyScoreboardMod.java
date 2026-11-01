@@ -10,23 +10,21 @@ import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.server.network.ServerPlayNetworkHandler;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.context.BlockPlaceContext;
+import net.minecraft.world.level.block.state.BlockState;
 import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.fabricmc.fabric.api.event.player.UseItemCallback;
 import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
-import net.minecraft.util.ActionResult;
-import net.minecraft.util.TypedActionResult;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.block.BlockState;
-import net.minecraft.item.BlockItem;
-import net.minecraft.item.ItemPlacementContext;
-import net.minecraft.item.ItemStack;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.util.math.BlockPos;
 import java.util.UUID;
 
 public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
@@ -63,12 +61,12 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
 
         // プレイヤーのアクションイベント（統計のリアルタイム更新用）
         PlayerBlockBreakEvents.AFTER.register((world, player, pos, state, entity) -> {
-            if (!world.isClient && player instanceof ServerPlayerEntity) {
-                MonthlyAreaStatsManager.recordBlockMined((ServerPlayerEntity) player, pos);
+            if (!world.isClientSide() && player instanceof ServerPlayer) {
+                MonthlyAreaStatsManager.recordBlockMined((ServerPlayer) player, pos);
 
 
                 // バルク更新システムを使用
-                UUID playerId = ((ServerPlayerEntity) player).getUuid();
+                UUID playerId = ((ServerPlayer) player).getUUID();
                 boolean needsBulkUpdate = BulkUpdateManager.recordUpdate(playerId, "block_break");
 
                 if (needsBulkUpdate) {
@@ -82,13 +80,13 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
         });
 
         UseBlockCallback.EVENT.register((player, world, hand, hitResult) -> {
-            if (!world.isClient && player instanceof ServerPlayerEntity && world instanceof ServerWorld) {
-                ServerPlayerEntity serverPlayer = (ServerPlayerEntity) player;
-                ServerWorld serverWorld = (ServerWorld) world;
-                ItemStack stack = player.getStackInHand(hand);
+            if (!world.isClientSide() && player instanceof ServerPlayer && world instanceof ServerLevel) {
+                ServerPlayer serverPlayer = (ServerPlayer) player;
+                ServerLevel serverWorld = (ServerLevel) world;
+                ItemStack stack = player.getItemInHand(hand);
                 if (stack.getItem() instanceof BlockItem) {
-                    ItemPlacementContext placementContext = new ItemPlacementContext(player, hand, stack, hitResult);
-                    BlockPos placePos = placementContext.getBlockPos();
+                    BlockPlaceContext placementContext = new BlockPlaceContext(player, hand, stack, hitResult);
+                    BlockPos placePos = placementContext.getClickedPos();
                     BlockState beforeState = serverWorld.getBlockState(placePos);
                     serverWorld.getServer().execute(() -> {
                         BlockState afterState = serverWorld.getBlockState(placePos);
@@ -99,7 +97,7 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
                 }
 
                 // バルク更新システムを使用（ブロック設置）
-                UUID playerId = serverPlayer.getUuid();
+                UUID playerId = serverPlayer.getUUID();
                 boolean needsBulkUpdate = BulkUpdateManager.recordUpdate(playerId, "block_place");
 
                 if (needsBulkUpdate) {
@@ -110,7 +108,7 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
                     TotalStatsManager.scheduleInstantUpdate();
                 }
             }
-            return ActionResult.PASS;
+            return InteractionResult.PASS;
         });
 
         ServerLivingEntityEvents.AFTER_DEATH.register((entity, damageSource) -> {
@@ -120,20 +118,20 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
 
         // アイテム使用時のイベント
         UseItemCallback.EVENT.register((player, world, hand) -> {
-            if (!world.isClient && player instanceof ServerPlayerEntity) {
+            if (!world.isClientSide() && player instanceof ServerPlayer) {
                 // アイテム使用時の統計更新（即座実行）
                 TotalStatsManager.scheduleInstantUpdate();
             }
-            return TypedActionResult.pass(player.getStackInHand(hand));
+            return InteractionResult.PASS;
         });
 
         // エンティティ攻撃時のイベント（キル統計用）
         AttackEntityCallback.EVENT.register((player, world, hand, entity, hitResult) -> {
-            if (!world.isClient && player instanceof ServerPlayerEntity) {
+            if (!world.isClientSide() && player instanceof ServerPlayer) {
                 // 攻撃時の統計更新（即座実行）
                 TotalStatsManager.scheduleInstantUpdate();
             }
-            return ActionResult.PASS;
+            return InteractionResult.PASS;
         });
     }
 
@@ -182,26 +180,26 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
         DiscordConfig.shutdown();
     }
 
-    private void onPlayerJoin(net.minecraft.server.network.ServerPlayNetworkHandler handler, net.fabricmc.fabric.api.networking.v1.PacketSender sender, MinecraftServer server) {
+    private void onPlayerJoin(net.minecraft.server.network.ServerGamePacketListenerImpl handler, net.fabricmc.fabric.api.networking.v1.PacketSender sender, MinecraftServer server) {
         // プレイヤーログイン時の処理
-        ServerPlayerEntity joined = handler.getPlayer();
+        ServerPlayer joined = handler.getPlayer();
         // Carpet fake player の場合はクラスベース判定で検出して登録
         FakePlayerDetector.registerIfFakePlayer(joined);
         ServerScoreboardManager.onPlayerJoin(joined);
     }
 
-    private void onPlayerDisconnect(net.minecraft.server.network.ServerPlayNetworkHandler handler, MinecraftServer server) {
+    private void onPlayerDisconnect(net.minecraft.server.network.ServerGamePacketListenerImpl handler, MinecraftServer server) {
         // プレイヤー切断時の処理
-        ServerPlayerEntity player = handler.getPlayer();
+        ServerPlayer player = handler.getPlayer();
         ServerScoreboardManager.onPlayerDisconnect(player);
 
         // バルク更新履歴をクリーンアップ
-        BulkUpdateManager.clearPlayerHistory(player.getUuid());
+        BulkUpdateManager.clearPlayerHistory(player.getUUID());
 
         // メモリリーク防止: 各システムのプレイヤーデータをクリーンアップ
-        RateLimiter.clearPlayer(player.getUuid());
-        CustomScoreboardPacketSender.clearTransformedScoreCache(player.getUuidAsString());
-        BatchedScoreboardUpdater.clearPlayer(player.getUuid());
+        RateLimiter.clearPlayer(player.getUUID());
+        CustomScoreboardPacketSender.clearTransformedScoreCache(player.getStringUUID());
+        BatchedScoreboardUpdater.clearPlayer(player.getUUID());
     }
 
     private void onServerTick(MinecraftServer server) {
@@ -210,7 +208,7 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
         TotalStatsManager.updateAllTotalStats();
 
         // スコアボード切り替え処理（INTERVAL毎に実行）
-        if (server.getTicks() % ServerScoreboardConfig.UPDATE_INTERVAL_TICKS == 0) {
+        if (server.getTickCount() % ServerScoreboardConfig.UPDATE_INTERVAL_TICKS == 0) {
             ServerScoreboardManager.updateClientScoreboards(server);
         }
 
@@ -218,7 +216,7 @@ public class ServerOnlyScoreboardMod implements DedicatedServerModInitializer {
         BatchedScoreboardUpdater.flushAllBatches();
 
         // 5分ごとにキャッシュとスコアボードデータを保存（300秒 * 20 ticks/秒 = 6000 ticks）
-        if (server.getTicks() % 6000 == 0) {
+        if (server.getTickCount() % 6000 == 0) {
             PlayerStatsCache.saveCache();
             ServerScoreboardManager.saveScoreboardData(server);
             MonthlyAreaStatsManager.saveIfDirty();

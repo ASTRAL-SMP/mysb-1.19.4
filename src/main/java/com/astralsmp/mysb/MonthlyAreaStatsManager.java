@@ -1,19 +1,21 @@
 package com.astralsmp.mysb;
 
-import net.minecraft.nbt.NbtCompound;
+import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
-import net.minecraft.nbt.NbtList;
-import net.minecraft.scoreboard.Scoreboard;
-import net.minecraft.scoreboard.ScoreboardCriterion;
-import net.minecraft.scoreboard.ScoreboardObjective;
-import net.minecraft.scoreboard.ScoreboardPlayerScore;
-import net.minecraft.scoreboard.ServerScoreboard;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.text.Text;
-import net.minecraft.util.WorldSavePath;
-import net.minecraft.util.math.BlockPos;
-
+import net.minecraft.server.ServerScoreboard;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.storage.LevelResource;
+import net.minecraft.world.scores.Objective;
+import net.minecraft.world.scores.PlayerScoreEntry;
+import net.minecraft.world.scores.ScoreAccess;
+import net.minecraft.world.scores.ScoreHolder;
+import net.minecraft.world.scores.Scoreboard;
+import net.minecraft.world.scores.criteria.ObjectiveCriteria;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -70,22 +72,22 @@ public class MonthlyAreaStatsManager {
         try {
             Path configDir = getConfigDirectory();
             Files.createDirectories(configDir);
-            NbtCompound root = new NbtCompound();
+            CompoundTag root = new CompoundTag();
             root.putString("displayedMonth", displayedMonth);
 
-            NbtList areaList = new NbtList();
+            ListTag areaList = new ListTag();
             for (AreaConfig area : areas.values()) {
                 areaList.add(area.toNbt());
             }
             root.put("areas", areaList);
 
-            NbtList statList = new NbtList();
+            ListTag statList = new ListTag();
             for (Map.Entry<String, Map<String, Map<String, PlayerMonthStats>>> areaEntry : monthlyStats.entrySet()) {
                 String areaId = areaEntry.getKey();
                 for (Map.Entry<String, Map<String, PlayerMonthStats>> monthEntry : areaEntry.getValue().entrySet()) {
                     String month = monthEntry.getKey();
                     for (Map.Entry<String, PlayerMonthStats> playerEntry : monthEntry.getValue().entrySet()) {
-                        NbtCompound statNbt = new NbtCompound();
+                        CompoundTag statNbt = new CompoundTag();
                         statNbt.putString("areaId", areaId);
                         statNbt.putString("month", month);
                         statNbt.putString("player", playerEntry.getKey());
@@ -97,7 +99,7 @@ public class MonthlyAreaStatsManager {
             }
             root.put("stats", statList);
 
-            NbtIo.writeCompressed(root, getDataFile());
+            NbtIo.writeCompressed(root, getDataFile().toPath());
             dirty = false;
         } catch (IOException e) {
             ServerScoreboardLogger.error("Failed to save monthly area stats", e);
@@ -110,11 +112,11 @@ public class MonthlyAreaStatsManager {
         }
     }
 
-    public static AreaChunkPos setSelectionPos(ServerPlayerEntity player, String areaId, boolean firstPos) {
+    public static AreaChunkPos setSelectionPos(ServerPlayer player, String areaId, boolean firstPos) {
         validateAreaId(areaId);
-        AreaChunkPos pos = AreaChunkPos.fromBlockPos(player.getBlockPos());
-        String dimension = player.getWorld().getRegistryKey().getValue().toString();
-        AreaSelection selection = selections.computeIfAbsent(player.getUuid(), ignored -> new AreaSelection());
+        AreaChunkPos pos = AreaChunkPos.fromBlockPos(player.blockPosition());
+        String dimension = player.level().dimension().identifier().toString();
+        AreaSelection selection = selections.computeIfAbsent(player.getUUID(), ignored -> new AreaSelection());
         if (firstPos) {
             selection.areaId = areaId;
             selection.pos1 = pos;
@@ -127,9 +129,9 @@ public class MonthlyAreaStatsManager {
         return pos;
     }
 
-    public static AreaConfig createAreaFromSelection(ServerPlayerEntity player, String areaId, String displayName) {
+    public static AreaConfig createAreaFromSelection(ServerPlayer player, String areaId, String displayName) {
         validateAreaId(areaId);
-        AreaSelection selection = selections.get(player.getUuid());
+        AreaSelection selection = selections.get(player.getUUID());
         if (selection == null || selection.pos1 == null || selection.pos2 == null || !areaId.equals(selection.areaId)) {
             throw new IllegalArgumentException("先に /mysb area pos1 " + areaId + " と /mysb area pos2 " + areaId + " を実行してください");
         }
@@ -172,11 +174,11 @@ public class MonthlyAreaStatsManager {
         return true;
     }
 
-    public static void recordBlockMined(ServerPlayerEntity player, BlockPos blockPos) {
+    public static void recordBlockMined(ServerPlayer player, BlockPos blockPos) {
         record(player, blockPos, true);
     }
 
-    public static void recordBlockPlaced(ServerPlayerEntity player, BlockPos blockPos) {
+    public static void recordBlockPlaced(ServerPlayer player, BlockPos blockPos) {
         record(player, blockPos, false);
     }
 
@@ -220,7 +222,7 @@ public class MonthlyAreaStatsManager {
         }
     }
 
-    private static void record(ServerPlayerEntity player, BlockPos blockPos, boolean mined) {
+    private static void record(ServerPlayer player, BlockPos blockPos, boolean mined) {
         if (server == null || areas.isEmpty()) {
             return;
         }
@@ -233,7 +235,7 @@ public class MonthlyAreaStatsManager {
             return;
         }
 
-        String dimension = player.getWorld().getRegistryKey().getValue().toString();
+        String dimension = player.level().dimension().identifier().toString();
         AreaChunkPos chunk = AreaChunkPos.fromBlockPos(blockPos);
         String month = currentMonth();
         boolean changed = false;
@@ -272,27 +274,27 @@ public class MonthlyAreaStatsManager {
         }
 
         try {
-            NbtCompound root = NbtIo.readCompressed(dataFile);
-            displayedMonth = root.contains("displayedMonth") ? normalizeMonth(root.getString("displayedMonth")) : currentMonth();
+            CompoundTag root = NbtIo.readCompressed(dataFile.toPath(), NbtAccounter.unlimitedHeap());
+            displayedMonth = root.contains("displayedMonth") ? normalizeMonth(root.getStringOr("displayedMonth", "")) : currentMonth();
 
             if (root.contains("areas")) {
-                NbtList areaList = root.getList("areas", 10);
+                ListTag areaList = root.getListOrEmpty("areas");
                 for (int i = 0; i < areaList.size(); i++) {
-                    AreaConfig area = AreaConfig.fromNbt(areaList.getCompound(i));
+                    AreaConfig area = AreaConfig.fromNbt(areaList.getCompoundOrEmpty(i));
                     areas.put(area.id, area);
                 }
             }
 
             if (root.contains("stats")) {
-                NbtList statList = root.getList("stats", 10);
+                ListTag statList = root.getListOrEmpty("stats");
                 for (int i = 0; i < statList.size(); i++) {
-                    NbtCompound statNbt = statList.getCompound(i);
-                    String areaId = statNbt.getString("areaId");
-                    String month = normalizeMonth(statNbt.getString("month"));
-                    String playerName = statNbt.getString("player");
+                    CompoundTag statNbt = statList.getCompoundOrEmpty(i);
+                    String areaId = statNbt.getStringOr("areaId", "");
+                    String month = normalizeMonth(statNbt.getStringOr("month", ""));
+                    String playerName = statNbt.getStringOr("player", "");
                     PlayerMonthStats stats = new PlayerMonthStats();
-                    stats.mined = statNbt.getInt("mined");
-                    stats.placed = statNbt.getInt("placed");
+                    stats.mined = statNbt.getIntOr("mined", 0);
+                    stats.placed = statNbt.getIntOr("placed", 0);
                     monthlyStats
                             .computeIfAbsent(areaId, ignored -> new ConcurrentHashMap<>())
                             .computeIfAbsent(month, ignored -> new ConcurrentHashMap<>())
@@ -318,13 +320,15 @@ public class MonthlyAreaStatsManager {
     }
 
     private static void ensureObjective(Scoreboard scoreboard, String objectiveName, String displayName) {
-        ScoreboardObjective objective = scoreboard.getObjective(objectiveName);
+        Objective objective = scoreboard.getObjective(objectiveName);
         if (objective == null) {
             scoreboard.addObjective(
                     objectiveName,
-                    ScoreboardCriterion.DUMMY,
-                    Text.literal(displayName),
-                    ScoreboardCriterion.RenderType.INTEGER
+                    ObjectiveCriteria.DUMMY,
+                    Component.literal(displayName),
+                    ObjectiveCriteria.RenderType.INTEGER,
+                    false,
+                    null
             );
         } else {
             setObjectiveDisplayName(scoreboard, objective, displayName);
@@ -333,8 +337,8 @@ public class MonthlyAreaStatsManager {
 
     private static void updateAreaScoreboards(AreaConfig area) {
         Scoreboard scoreboard = server.getScoreboard();
-        ScoreboardObjective minedObjective = scoreboard.getObjective(area.getMinedObjectiveName());
-        ScoreboardObjective placedObjective = scoreboard.getObjective(area.getPlacedObjectiveName());
+        Objective minedObjective = scoreboard.getObjective(area.getMinedObjectiveName());
+        Objective placedObjective = scoreboard.getObjective(area.getPlacedObjectiveName());
         if (minedObjective == null || placedObjective == null) {
             createObjectives(area);
             minedObjective = scoreboard.getObjective(area.getMinedObjectiveName());
@@ -350,12 +354,12 @@ public class MonthlyAreaStatsManager {
         }
     }
 
-    private static void setObjectiveDisplayName(Scoreboard scoreboard, ScoreboardObjective objective, String displayName) {
-        Text text = Text.literal(displayName);
+    private static void setObjectiveDisplayName(Scoreboard scoreboard, Objective objective, String displayName) {
+        Component text = Component.literal(displayName);
         if (!objective.getDisplayName().equals(text)) {
             objective.setDisplayName(text);
             if (scoreboard instanceof ServerScoreboard serverScoreboard) {
-                serverScoreboard.updateExistingObjective(objective);
+                serverScoreboard.onObjectiveChanged(objective);
             }
         }
     }
@@ -366,10 +370,10 @@ public class MonthlyAreaStatsManager {
                 .getOrDefault(month, Map.of());
     }
 
-    private static void updateObjectiveScores(Scoreboard scoreboard, ScoreboardObjective objective, Map<String, PlayerMonthStats> stats, boolean mined) {
-        Collection<ScoreboardPlayerScore> oldScores = new ArrayList<>(scoreboard.getAllPlayerScores(objective));
-        for (ScoreboardPlayerScore oldScore : oldScores) {
-            scoreboard.resetPlayerScore(oldScore.getPlayerName(), objective);
+    private static void updateObjectiveScores(Scoreboard scoreboard, Objective objective, Map<String, PlayerMonthStats> stats, boolean mined) {
+        Collection<PlayerScoreEntry> oldScores = new ArrayList<>(scoreboard.listPlayerScores(objective));
+        for (PlayerScoreEntry oldScore : oldScores) {
+            scoreboard.resetSinglePlayerScore(ScoreHolder.forNameOnly(oldScore.owner()), objective);
         }
 
         boolean filterFakePlayers = !ServerScoreboardConfig.FAKE_PLAYER_SCORE_ENABLED;
@@ -382,8 +386,8 @@ public class MonthlyAreaStatsManager {
             total += mined ? entry.getValue().mined : entry.getValue().placed;
         }
 
-        ScoreboardPlayerScore totalScore = scoreboard.getPlayerScore(SERVER_TOTAL_NAME, objective);
-        totalScore.setScore(total);
+        ScoreAccess totalScore = scoreboard.getOrCreatePlayerScore(ScoreHolder.forNameOnly(SERVER_TOTAL_NAME), objective);
+        totalScore.set(total);
 
         for (Map.Entry<String, PlayerMonthStats> entry : stats.entrySet()) {
             String playerName = entry.getKey();
@@ -392,13 +396,13 @@ public class MonthlyAreaStatsManager {
             }
             int value = mined ? entry.getValue().mined : entry.getValue().placed;
             if (value > 0) {
-                scoreboard.getPlayerScore(playerName, objective).setScore(value);
+                scoreboard.getOrCreatePlayerScore(ScoreHolder.forNameOnly(playerName), objective).set(value);
             }
         }
     }
 
     private static void removeObjectiveIfPresent(Scoreboard scoreboard, String objectiveName) {
-        ScoreboardObjective objective = scoreboard.getObjective(objectiveName);
+        Objective objective = scoreboard.getObjective(objectiveName);
         if (objective != null) {
             scoreboard.removeObjective(objective);
         }
@@ -421,7 +425,7 @@ public class MonthlyAreaStatsManager {
     }
 
     private static Path getConfigDirectory() {
-        return server.getSavePath(WorldSavePath.ROOT).resolve("config/mysb");
+        return server.getWorldPath(LevelResource.ROOT).resolve("config/mysb");
     }
 
     private static File getDataFile() {
@@ -496,8 +500,8 @@ public class MonthlyAreaStatsManager {
             return month + " " + displayName + " Placed";
         }
 
-        public NbtCompound toNbt() {
-            NbtCompound nbt = new NbtCompound();
+        public CompoundTag toNbt() {
+            CompoundTag nbt = new CompoundTag();
             nbt.putString("id", id);
             nbt.putString("displayName", displayName);
             nbt.putString("dimension", dimension);
@@ -508,15 +512,15 @@ public class MonthlyAreaStatsManager {
             return nbt;
         }
 
-        public static AreaConfig fromNbt(NbtCompound nbt) {
-            int minX = nbt.contains("minChunkX") ? nbt.getInt("minChunkX") : nbt.getInt("minSectionX");
-            int minZ = nbt.contains("minChunkZ") ? nbt.getInt("minChunkZ") : nbt.getInt("minSectionZ");
-            int maxX = nbt.contains("maxChunkX") ? nbt.getInt("maxChunkX") : nbt.getInt("maxSectionX");
-            int maxZ = nbt.contains("maxChunkZ") ? nbt.getInt("maxChunkZ") : nbt.getInt("maxSectionZ");
+        public static AreaConfig fromNbt(CompoundTag nbt) {
+            int minX = nbt.contains("minChunkX") ? nbt.getIntOr("minChunkX", 0) : nbt.getIntOr("minSectionX", 0);
+            int minZ = nbt.contains("minChunkZ") ? nbt.getIntOr("minChunkZ", 0) : nbt.getIntOr("minSectionZ", 0);
+            int maxX = nbt.contains("maxChunkX") ? nbt.getIntOr("maxChunkX", 0) : nbt.getIntOr("maxSectionX", 0);
+            int maxZ = nbt.contains("maxChunkZ") ? nbt.getIntOr("maxChunkZ", 0) : nbt.getIntOr("maxSectionZ", 0);
             return new AreaConfig(
-                    nbt.getString("id"),
-                    nbt.getString("displayName"),
-                    nbt.getString("dimension"),
+                    nbt.getStringOr("id", ""),
+                    nbt.getStringOr("displayName", ""),
+                    nbt.getStringOr("dimension", ""),
                     minX,
                     minZ,
                     maxX,

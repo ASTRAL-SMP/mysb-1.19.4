@@ -11,149 +11,148 @@ import com.astralsmp.mysb.discord.DiscordManager;
 import com.astralsmp.mysb.discord.DiscordScheduler;
 import com.astralsmp.mysb.discord.DiscordSettingsGUI;
 import com.astralsmp.mysb.discord.DiscordStatsPublisher;
-import net.minecraft.server.command.CommandManager;
-import net.minecraft.server.command.ServerCommandSource;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
-import net.minecraft.scoreboard.ScoreboardObjective;
-
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import net.minecraft.ChatFormatting;
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.commands.Commands;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerPlayer;
 import java.util.Set;
 import java.util.Map;
 
 public class ServerScoreboardCommands {
 
-    public static void register(CommandDispatcher<ServerCommandSource> dispatcher) {
+    public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         // /mysb コマンド
-        dispatcher.register(CommandManager.literal("mysb")
+        dispatcher.register(Commands.literal("mysb")
                 .executes(ServerScoreboardCommands::openGUIForSender) // デフォルトでGUIを開く
-                .then(CommandManager.literal("reload")
-                        .requires(source -> source.hasPermissionLevel(4)) // OPレベル4（最高権限）のみ
+                .then(Commands.literal("reload")
+                        .requires(Commands.hasPermission(Commands.LEVEL_OWNERS)) // OPレベル4（最高権限）のみ
                         .executes(ServerScoreboardCommands::reloadScoreboard))
-                .then(CommandManager.literal("total")
-                        .requires(source -> source.hasPermissionLevel(0)) // 権限レベル0（全員使用可能）
+                .then(Commands.literal("total")
+                        .requires(Commands.hasPermission(Commands.LEVEL_ALL)) // 権限レベル0（全員使用可能）
                         .executes(ServerScoreboardCommands::showTotalHelp) // /mysb totalでヘルプ表示
-                        .then(CommandManager.literal("add")
-                                .then(CommandManager.argument("id", StringArgumentType.word())
+                        .then(Commands.literal("add")
+                                .then(Commands.argument("id", StringArgumentType.word())
                                         .suggests((context, builder) -> {
                                             // IDのサジェスト
-                                            builder.suggest("my_custom_stat", Text.literal("カスタム統計のID（英数字）"));
+                                            builder.suggest("my_custom_stat", Component.literal("カスタム統計のID（英数字）"));
                                             return builder.buildFuture();
                                         })
-                                        .then(CommandManager.argument("displayName", StringArgumentType.string())
+                                        .then(Commands.argument("displayName", StringArgumentType.string())
                                                 .suggests((context, builder) -> {
                                                     // 表示名のサジェスト
                                                     String id = StringArgumentType.getString(context, "id");
-                                                    builder.suggest("\"My Custom Stat\"", Text.literal("表示名（スペースを含む場合は\"\"で囲む）"));
+                                                    builder.suggest("\"My Custom Stat\"", Component.literal("表示名（スペースを含む場合は\"\"で囲む）"));
                                                     return builder.buildFuture();
                                                 })
-                                                .then(CommandManager.argument("statType", StringArgumentType.word())
+                                                .then(Commands.argument("statType", StringArgumentType.word())
                                                         .suggests(ServerScoreboardCommands::suggestStatTypes)
                                                         .executes(ServerScoreboardCommands::addTotalStat)))))
-                        .then(CommandManager.literal("list")
+                        .then(Commands.literal("list")
                                 .executes(ServerScoreboardCommands::listTotalStats))
-                        .then(CommandManager.literal("update")
+                        .then(Commands.literal("update")
                                 .executes(ServerScoreboardCommands::updateTotalStats))
-	                        .then(CommandManager.literal("remove")
-	                                .then(CommandManager.argument("id", StringArgumentType.word())
+	                        .then(Commands.literal("remove")
+	                                .then(Commands.argument("id", StringArgumentType.word())
 	                                        .suggests(ServerScoreboardCommands::suggestCustomStats)
 	                                        .executes(ServerScoreboardCommands::removeTotalStat))))
-	                .then(CommandManager.literal("area")
-	                        .requires(source -> source.hasPermissionLevel(3))
+	                .then(Commands.literal("area")
+	                        .requires(Commands.hasPermission(Commands.LEVEL_ADMINS))
 	                        .executes(ServerScoreboardCommands::showAreaHelp)
-	                        .then(CommandManager.literal("pos1")
-	                                .then(CommandManager.argument("id", StringArgumentType.word())
+	                        .then(Commands.literal("pos1")
+	                                .then(Commands.argument("id", StringArgumentType.word())
 	                                        .executes(context -> setAreaSelectionPos(context, true))))
-	                        .then(CommandManager.literal("pos2")
-	                                .then(CommandManager.argument("id", StringArgumentType.word())
+	                        .then(Commands.literal("pos2")
+	                                .then(Commands.argument("id", StringArgumentType.word())
 	                                        .executes(context -> setAreaSelectionPos(context, false))))
-		                        .then(CommandManager.literal("create")
-		                                .then(CommandManager.argument("id", StringArgumentType.word())
-		                                        .then(CommandManager.argument("displayName", StringArgumentType.string())
+		                        .then(Commands.literal("create")
+		                                .then(Commands.argument("id", StringArgumentType.word())
+		                                        .then(Commands.argument("displayName", StringArgumentType.string())
 		                                                .executes(ServerScoreboardCommands::createAreaFromSelection)
-		                                                .then(CommandManager.argument("x1", IntegerArgumentType.integer())
-		                                                        .then(CommandManager.argument("z1", IntegerArgumentType.integer())
-		                                                                .then(CommandManager.argument("x2", IntegerArgumentType.integer())
-		                                                                        .then(CommandManager.argument("z2", IntegerArgumentType.integer())
+		                                                .then(Commands.argument("x1", IntegerArgumentType.integer())
+		                                                        .then(Commands.argument("z1", IntegerArgumentType.integer())
+		                                                                .then(Commands.argument("x2", IntegerArgumentType.integer())
+		                                                                        .then(Commands.argument("z2", IntegerArgumentType.integer())
 		                                                                                .executes(ServerScoreboardCommands::createAreaFromCoordinates))))))))
-	                        .then(CommandManager.literal("list")
+	                        .then(Commands.literal("list")
 	                                .executes(ServerScoreboardCommands::listAreas))
-	                        .then(CommandManager.literal("remove")
-	                                .then(CommandManager.argument("id", StringArgumentType.word())
+	                        .then(Commands.literal("remove")
+	                                .then(Commands.argument("id", StringArgumentType.word())
 	                                        .suggests(ServerScoreboardCommands::suggestAreas)
 	                                        .executes(ServerScoreboardCommands::removeArea)))
-	                        .then(CommandManager.literal("month")
-	                                .then(CommandManager.literal("current")
+	                        .then(Commands.literal("month")
+	                                .then(Commands.literal("current")
 	                                        .executes(ServerScoreboardCommands::setAreaMonthCurrent))
-	                                .then(CommandManager.argument("month", StringArgumentType.string())
+	                                .then(Commands.argument("month", StringArgumentType.string())
 	                                        .suggests(ServerScoreboardCommands::suggestAreaMonths)
 	                                        .executes(ServerScoreboardCommands::setAreaMonth)))
-	                        .then(CommandManager.literal("update")
+	                        .then(Commands.literal("update")
 	                                .executes(ServerScoreboardCommands::updateAreas)))
-	                .then(CommandManager.literal("admin")
-	                        .requires(source -> source.hasPermissionLevel(0)) // 権限レベル0（全員使用可能）
-                        .then(CommandManager.literal("gui")
+	                .then(Commands.literal("admin")
+	                        .requires(Commands.hasPermission(Commands.LEVEL_ALL)) // 権限レベル0（全員使用可能）
+                        .then(Commands.literal("gui")
                                 .executes(ServerScoreboardCommands::openAdminGUI))
-                        .then(CommandManager.literal("exclude")
-                                .then(CommandManager.argument("player", StringArgumentType.word())
+                        .then(Commands.literal("exclude")
+                                .then(Commands.argument("player", StringArgumentType.word())
                                         .suggests(ServerScoreboardCommands::suggestOnlinePlayers)
                                         .executes(ServerScoreboardCommands::excludePlayer))
-                                .then(CommandManager.literal("list")
+                                .then(Commands.literal("list")
                                         .executes(ServerScoreboardCommands::listExcludedPlayers)))
-                        .then(CommandManager.literal("include")
-                                .then(CommandManager.argument("player", StringArgumentType.word())
+                        .then(Commands.literal("include")
+                                .then(Commands.argument("player", StringArgumentType.word())
                                         .suggests(ServerScoreboardCommands::suggestExcludedPlayers)
                                         .executes(ServerScoreboardCommands::includePlayer)))
-                        .then(CommandManager.literal("stats")
-                                .then(CommandManager.literal("enable")
-                                        .then(CommandManager.argument("stat", StringArgumentType.word())
+                        .then(Commands.literal("stats")
+                                .then(Commands.literal("enable")
+                                        .then(Commands.argument("stat", StringArgumentType.word())
                                                 .suggests(ServerScoreboardCommands::suggestAvailableStats)
                                                 .executes(ServerScoreboardCommands::enableStat)))
-                                .then(CommandManager.literal("disable")
-                                        .then(CommandManager.argument("stat", StringArgumentType.word())
+                                .then(Commands.literal("disable")
+                                        .then(Commands.argument("stat", StringArgumentType.word())
                                                 .suggests(ServerScoreboardCommands::suggestEnabledStats)
                                                 .executes(ServerScoreboardCommands::disableStat)))
-                                .then(CommandManager.literal("list")
+                                .then(Commands.literal("list")
                                         .executes(ServerScoreboardCommands::listStatStatus)))
-                        .then(CommandManager.literal("fakeplayerscore")
-                                .then(CommandManager.literal("enable")
-                                        .requires(source -> source.hasPermissionLevel(3)) // OPレベル3以上
+                        .then(Commands.literal("fakeplayerscore")
+                                .then(Commands.literal("enable")
+                                        .requires(Commands.hasPermission(Commands.LEVEL_ADMINS)) // OPレベル3以上
                                         .executes(ServerScoreboardCommands::enableFakePlayerScore))
-                                .then(CommandManager.literal("disable")
-                                        .requires(source -> source.hasPermissionLevel(3)) // OPレベル3以上
+                                .then(Commands.literal("disable")
+                                        .requires(Commands.hasPermission(Commands.LEVEL_ADMINS)) // OPレベル3以上
                                         .executes(ServerScoreboardCommands::disableFakePlayerScore))))
-                .then(CommandManager.literal("version")
+                .then(Commands.literal("version")
                         .executes(ServerScoreboardCommands::showVersion))
         );
 
         // /mysbdiscord コマンド（Discord連携専用）
-        dispatcher.register(CommandManager.literal("mysbdiscord")
-                .requires(source -> source.hasPermissionLevel(3)) // OP3以上
+        dispatcher.register(Commands.literal("mysbdiscord")
+                .requires(Commands.hasPermission(Commands.LEVEL_ADMINS)) // OP3以上
                 .executes(ServerScoreboardCommands::openDiscordGUI) // デフォルトでGUIを開く
-                .then(CommandManager.literal("channel")
-                        .then(CommandManager.argument("id", StringArgumentType.word())
+                .then(Commands.literal("channel")
+                        .then(Commands.argument("id", StringArgumentType.word())
                                 .executes(ServerScoreboardCommands::setDiscordChannel)))
-                .then(CommandManager.literal("status")
+                .then(Commands.literal("status")
                         .executes(ServerScoreboardCommands::showDiscordStatus))
-                .then(CommandManager.literal("reconnect")
+                .then(Commands.literal("reconnect")
                         .executes(ServerScoreboardCommands::reconnectDiscord))
-                .then(CommandManager.literal("test")
+                .then(Commands.literal("test")
                         .executes(ServerScoreboardCommands::testDiscord))
-                .then(CommandManager.literal("update")
+                .then(Commands.literal("update")
                         .executes(ServerScoreboardCommands::forceDiscordUpdate))
         );
     }
 
-    private static int openAdminGUI(CommandContext<ServerCommandSource> context) {
+    private static int openAdminGUI(CommandContext<CommandSourceStack> context) {
         try {
-            ServerCommandSource source = context.getSource();
-            if (source.getEntity() instanceof ServerPlayerEntity player) {
+            CommandSourceStack source = context.getSource();
+            if (source.getEntity() instanceof ServerPlayer player) {
                 // Rate limit check
-                if (!RateLimiter.canPerformAction(player.getUuid(), "gui", ServerScoreboardConfig.GUI_OPEN_COOLDOWN_MS)) {
-                    source.sendError(Text.literal("コマンドを実行するには少し待ってください"));
+                if (!RateLimiter.canPerformAction(player.getUUID(), "gui", ServerScoreboardConfig.GUI_OPEN_COOLDOWN_MS)) {
+                    source.sendFailure(Component.literal("コマンドを実行するには少し待ってください"));
                     return 0;
                 }
 
@@ -161,23 +160,23 @@ public class ServerScoreboardCommands {
                 ServerScoreboardAdminGUI.openFor(player, ServerScoreboardAdminGUI.AdminPage.STATS);
                 return 1;
             } else {
-                source.sendError(Text.literal("このコマンドはプレイヤーのみ実行できます"));
+                source.sendFailure(Component.literal("このコマンドはプレイヤーのみ実行できます"));
                 return 0;
             }
         } catch (Exception e) {
             ServerScoreboardLogger.error("Error executing admin GUI command", e);
-            context.getSource().sendError(Text.literal("コマンド実行中にエラーが発生しました: " + e.getMessage()));
+            context.getSource().sendFailure(Component.literal("コマンド実行中にエラーが発生しました: " + e.getMessage()));
             return 0;
         }
     }
 
-    private static int openGUIForSender(CommandContext<ServerCommandSource> context) {
+    private static int openGUIForSender(CommandContext<CommandSourceStack> context) {
         try {
-            ServerCommandSource source = context.getSource();
-            if (source.getEntity() instanceof ServerPlayerEntity player) {
+            CommandSourceStack source = context.getSource();
+            if (source.getEntity() instanceof ServerPlayer player) {
                 // Rate limit check
-                if (!RateLimiter.canPerformAction(player.getUuid(), "gui", ServerScoreboardConfig.GUI_OPEN_COOLDOWN_MS)) {
-                    source.sendError(Text.literal("コマンドを実行するには少し待ってください"));
+                if (!RateLimiter.canPerformAction(player.getUUID(), "gui", ServerScoreboardConfig.GUI_OPEN_COOLDOWN_MS)) {
+                    source.sendFailure(Component.literal("コマンドを実行するには少し待ってください"));
                     return 0;
                 }
 
@@ -185,23 +184,23 @@ public class ServerScoreboardCommands {
                 ServerScoreboardGUIv2.openFor(player, ServerScoreboardGUIv2.GUIPage.STATISTICS);
                 return 1;
             } else {
-                source.sendError(Text.literal("このコマンドはプレイヤーのみ実行できます"));
+                source.sendFailure(Component.literal("このコマンドはプレイヤーのみ実行できます"));
                 return 0;
             }
         } catch (Exception e) {
             ServerScoreboardLogger.error("Error executing GUI command", e);
-            context.getSource().sendError(Text.literal("コマンド実行中にエラーが発生しました: " + e.getMessage()));
+            context.getSource().sendFailure(Component.literal("コマンド実行中にエラーが発生しました: " + e.getMessage()));
             return 0;
         }
     }
 
-    private static int reloadScoreboard(CommandContext<ServerCommandSource> context) {
+    private static int reloadScoreboard(CommandContext<CommandSourceStack> context) {
         try {
             // レート制限チェック（コンソールからの実行も含む）
-            ServerCommandSource source = context.getSource();
-            if (source.getEntity() instanceof ServerPlayerEntity player) {
-                if (!RateLimiter.canPerformAction(player.getUuid(), "reload", ServerScoreboardConfig.COMMAND_COOLDOWN_MS * 10)) {
-                    source.sendError(Text.literal("リロードコマンドを実行するには少し待ってください"));
+            CommandSourceStack source = context.getSource();
+            if (source.getEntity() instanceof ServerPlayer player) {
+                if (!RateLimiter.canPerformAction(player.getUUID(), "reload", ServerScoreboardConfig.COMMAND_COOLDOWN_MS * 10)) {
+                    source.sendFailure(Component.literal("リロードコマンドを実行するには少し待ってください"));
                     return 0;
                 }
 	            }
@@ -209,61 +208,61 @@ public class ServerScoreboardCommands {
 	            ServerScoreboardManager.loadScoreboardData(context.getSource().getServer());
 	            MonthlyAreaStatsManager.reload();
 
-	            context.getSource().sendFeedback(
-	                    Text.literal("スコアボードデータを再読み込みしました"),
+	            context.getSource().sendSuccess(() -> 
+	                    Component.literal("スコアボードデータを再読み込みしました"),
                     false
             );
 
             return 1;
         } catch (Exception e) {
             ServerScoreboardLogger.error("Error reloading scoreboard data", e);
-            context.getSource().sendError(Text.literal("スコアボードデータの再読み込み中にエラーが発生しました: " + e.getMessage()));
+            context.getSource().sendFailure(Component.literal("スコアボードデータの再読み込み中にエラーが発生しました: " + e.getMessage()));
             return 0;
 	        }
 	    }
 
-	    private static int showAreaHelp(CommandContext<ServerCommandSource> context) {
-	        context.getSource().sendFeedback(Text.literal("=== 月間範囲統計コマンド ===").formatted(Formatting.GOLD), false);
-	        context.getSource().sendFeedback(Text.literal("/mysb area pos1 <id>").formatted(Formatting.YELLOW), false);
-        context.getSource().sendFeedback(Text.literal("  現在位置のチャンクを始点に設定").formatted(Formatting.GRAY), false);
-	        context.getSource().sendFeedback(Text.literal("/mysb area pos2 <id>").formatted(Formatting.YELLOW), false);
-        context.getSource().sendFeedback(Text.literal("  現在位置のチャンクを終点に設定").formatted(Formatting.GRAY), false);
-	        context.getSource().sendFeedback(Text.literal("/mysb area create <id> <displayName>").formatted(Formatting.YELLOW), false);
-	        context.getSource().sendFeedback(Text.literal("  pos1/pos2 から月間採掘・設置スコアボードを作成").formatted(Formatting.GRAY), false);
-        context.getSource().sendFeedback(Text.literal("/mysb area create <id> <displayName> <x1> <z1> <x2> <z2>").formatted(Formatting.YELLOW), false);
-        context.getSource().sendFeedback(Text.literal("  チャンク座標を直接指定して作成").formatted(Formatting.GRAY), false);
-	        context.getSource().sendFeedback(Text.literal("/mysb area month <yyyy-MM|current>").formatted(Formatting.YELLOW), false);
-	        context.getSource().sendFeedback(Text.literal("  スコアボードへ表示する月を切り替え").formatted(Formatting.GRAY), false);
+	    private static int showAreaHelp(CommandContext<CommandSourceStack> context) {
+	        context.getSource().sendSuccess(() -> Component.literal("=== 月間範囲統計コマンド ===").withStyle(ChatFormatting.GOLD), false);
+	        context.getSource().sendSuccess(() -> Component.literal("/mysb area pos1 <id>").withStyle(ChatFormatting.YELLOW), false);
+        context.getSource().sendSuccess(() -> Component.literal("  現在位置のチャンクを始点に設定").withStyle(ChatFormatting.GRAY), false);
+	        context.getSource().sendSuccess(() -> Component.literal("/mysb area pos2 <id>").withStyle(ChatFormatting.YELLOW), false);
+        context.getSource().sendSuccess(() -> Component.literal("  現在位置のチャンクを終点に設定").withStyle(ChatFormatting.GRAY), false);
+	        context.getSource().sendSuccess(() -> Component.literal("/mysb area create <id> <displayName>").withStyle(ChatFormatting.YELLOW), false);
+	        context.getSource().sendSuccess(() -> Component.literal("  pos1/pos2 から月間採掘・設置スコアボードを作成").withStyle(ChatFormatting.GRAY), false);
+        context.getSource().sendSuccess(() -> Component.literal("/mysb area create <id> <displayName> <x1> <z1> <x2> <z2>").withStyle(ChatFormatting.YELLOW), false);
+        context.getSource().sendSuccess(() -> Component.literal("  チャンク座標を直接指定して作成").withStyle(ChatFormatting.GRAY), false);
+	        context.getSource().sendSuccess(() -> Component.literal("/mysb area month <yyyy-MM|current>").withStyle(ChatFormatting.YELLOW), false);
+	        context.getSource().sendSuccess(() -> Component.literal("  スコアボードへ表示する月を切り替え").withStyle(ChatFormatting.GRAY), false);
 	        return 1;
 	    }
 
-	    private static int setAreaSelectionPos(CommandContext<ServerCommandSource> context, boolean firstPos) {
+	    private static int setAreaSelectionPos(CommandContext<CommandSourceStack> context, boolean firstPos) {
 	        try {
-	            ServerCommandSource source = context.getSource();
-	            if (!(source.getEntity() instanceof ServerPlayerEntity player)) {
-	                source.sendError(Text.literal("このコマンドはプレイヤーのみ実行できます"));
+	            CommandSourceStack source = context.getSource();
+	            if (!(source.getEntity() instanceof ServerPlayer player)) {
+	                source.sendFailure(Component.literal("このコマンドはプレイヤーのみ実行できます"));
 	                return 0;
 	            }
 
 	            String id = StringArgumentType.getString(context, "id");
             MonthlyAreaStatsManager.AreaChunkPos pos = MonthlyAreaStatsManager.setSelectionPos(player, id, firstPos);
-            source.sendFeedback(
-                    Text.literal((firstPos ? "pos1" : "pos2") + " を設定しました: " + id + " chunk=" + pos.format()),
+            source.sendSuccess(() -> 
+                    Component.literal((firstPos ? "pos1" : "pos2") + " を設定しました: " + id + " chunk=" + pos.format()),
 	                    false
 	            );
 	            return 1;
 	        } catch (Exception e) {
 	            ServerScoreboardLogger.error("Error setting monthly area selection", e);
-	            context.getSource().sendError(Text.literal("範囲位置の設定中にエラーが発生しました: " + e.getMessage()));
+	            context.getSource().sendFailure(Component.literal("範囲位置の設定中にエラーが発生しました: " + e.getMessage()));
 	            return 0;
 	        }
 	    }
 
-	    private static int createAreaFromSelection(CommandContext<ServerCommandSource> context) {
+	    private static int createAreaFromSelection(CommandContext<CommandSourceStack> context) {
 	        try {
-	            ServerCommandSource source = context.getSource();
-	            if (!(source.getEntity() instanceof ServerPlayerEntity player)) {
-	                source.sendError(Text.literal("このコマンドはプレイヤーのみ実行できます"));
+	            CommandSourceStack source = context.getSource();
+	            if (!(source.getEntity() instanceof ServerPlayer player)) {
+	                source.sendFailure(Component.literal("このコマンドはプレイヤーのみ実行できます"));
 	                return 0;
 	            }
 
@@ -274,12 +273,12 @@ public class ServerScoreboardCommands {
 	            return 1;
 	        } catch (Exception e) {
 	            ServerScoreboardLogger.error("Error creating monthly area from selection", e);
-	            context.getSource().sendError(Text.literal("月間範囲統計の作成中にエラーが発生しました: " + e.getMessage()));
+	            context.getSource().sendFailure(Component.literal("月間範囲統計の作成中にエラーが発生しました: " + e.getMessage()));
 	            return 0;
 	        }
 	    }
 
-	    private static int createAreaFromCoordinates(CommandContext<ServerCommandSource> context) {
+	    private static int createAreaFromCoordinates(CommandContext<CommandSourceStack> context) {
 	        try {
 	            String id = StringArgumentType.getString(context, "id");
 	            String displayName = StringArgumentType.getString(context, "displayName");
@@ -291,38 +290,38 @@ public class ServerScoreboardCommands {
                     IntegerArgumentType.getInteger(context, "x2"),
                     IntegerArgumentType.getInteger(context, "z2")
             );
-	            String dimension = context.getSource().getWorld().getRegistryKey().getValue().toString();
+	            String dimension = context.getSource().getLevel().dimension().identifier().toString();
 	            MonthlyAreaStatsManager.AreaConfig area = MonthlyAreaStatsManager.createArea(id, displayName, dimension, pos1, pos2);
 	            sendAreaCreatedFeedback(context.getSource(), area);
 	            return 1;
 	        } catch (Exception e) {
 	            ServerScoreboardLogger.error("Error creating monthly area from coordinates", e);
-	            context.getSource().sendError(Text.literal("月間範囲統計の作成中にエラーが発生しました: " + e.getMessage()));
+	            context.getSource().sendFailure(Component.literal("月間範囲統計の作成中にエラーが発生しました: " + e.getMessage()));
 	            return 0;
 	        }
 	    }
 
-	    private static void sendAreaCreatedFeedback(ServerCommandSource source, MonthlyAreaStatsManager.AreaConfig area) {
-	        source.sendFeedback(
-	                Text.literal("月間範囲統計を作成しました: " + area.id
+	    private static void sendAreaCreatedFeedback(CommandSourceStack source, MonthlyAreaStatsManager.AreaConfig area) {
+	        source.sendSuccess(() -> 
+	                Component.literal("月間範囲統計を作成しました: " + area.id
 	                        + " mined=" + area.getMinedObjectiveName()
 	                        + " placed=" + area.getPlacedObjectiveName()),
 	                true
 	        );
 	    }
 
-	    private static int listAreas(CommandContext<ServerCommandSource> context) {
+	    private static int listAreas(CommandContext<CommandSourceStack> context) {
 	        try {
 	            var areas = MonthlyAreaStatsManager.getAreas();
 	            if (areas.isEmpty()) {
-	                context.getSource().sendFeedback(Text.literal("月間範囲統計は登録されていません"), false);
+	                context.getSource().sendSuccess(() -> Component.literal("月間範囲統計は登録されていません"), false);
 	                return 1;
 	            }
 
-	            context.getSource().sendFeedback(Text.literal("=== 月間範囲統計一覧 / 表示月: " + MonthlyAreaStatsManager.getDisplayedMonth() + " ===").formatted(Formatting.GOLD), false);
+	            context.getSource().sendSuccess(() -> Component.literal("=== 月間範囲統計一覧 / 表示月: " + MonthlyAreaStatsManager.getDisplayedMonth() + " ===").withStyle(ChatFormatting.GOLD), false);
 	            for (MonthlyAreaStatsManager.AreaConfig area : areas) {
-	                context.getSource().sendFeedback(
-	                        Text.literal("- " + area.id + " (" + area.displayName + ") "
+	                context.getSource().sendSuccess(() -> 
+	                        Component.literal("- " + area.id + " (" + area.displayName + ") "
 	                                + area.dimension + " ["
 	                                + area.minChunkX + " " + area.minChunkZ + "] -> ["
 	                                + area.maxChunkX + " " + area.maxChunkZ + "] "
@@ -333,59 +332,59 @@ public class ServerScoreboardCommands {
 	            return 1;
 	        } catch (Exception e) {
 	            ServerScoreboardLogger.error("Error listing monthly areas", e);
-	            context.getSource().sendError(Text.literal("月間範囲統計の一覧表示中にエラーが発生しました: " + e.getMessage()));
+	            context.getSource().sendFailure(Component.literal("月間範囲統計の一覧表示中にエラーが発生しました: " + e.getMessage()));
 	            return 0;
 	        }
 	    }
 
-	    private static int removeArea(CommandContext<ServerCommandSource> context) {
+	    private static int removeArea(CommandContext<CommandSourceStack> context) {
 	        try {
 	            String id = StringArgumentType.getString(context, "id");
 	            if (!MonthlyAreaStatsManager.removeArea(id)) {
-	                context.getSource().sendError(Text.literal("不明な範囲 ID です: " + id));
+	                context.getSource().sendFailure(Component.literal("不明な範囲 ID です: " + id));
 	                return 0;
 	            }
-	            context.getSource().sendFeedback(Text.literal("月間範囲統計を削除しました: " + id), true);
+	            context.getSource().sendSuccess(() -> Component.literal("月間範囲統計を削除しました: " + id), true);
 	            return 1;
 	        } catch (Exception e) {
 	            ServerScoreboardLogger.error("Error removing monthly area", e);
-	            context.getSource().sendError(Text.literal("月間範囲統計の削除中にエラーが発生しました: " + e.getMessage()));
+	            context.getSource().sendFailure(Component.literal("月間範囲統計の削除中にエラーが発生しました: " + e.getMessage()));
 	            return 0;
 	        }
 	    }
 
-	    private static int setAreaMonth(CommandContext<ServerCommandSource> context) {
+	    private static int setAreaMonth(CommandContext<CommandSourceStack> context) {
 	        try {
 	            String month = StringArgumentType.getString(context, "month");
 	            MonthlyAreaStatsManager.setDisplayedMonth(month);
-	            context.getSource().sendFeedback(Text.literal("月間範囲統計の表示月を " + MonthlyAreaStatsManager.getDisplayedMonth() + " に変更しました"), true);
+	            context.getSource().sendSuccess(() -> Component.literal("月間範囲統計の表示月を " + MonthlyAreaStatsManager.getDisplayedMonth() + " に変更しました"), true);
 	            return 1;
 	        } catch (Exception e) {
-	            context.getSource().sendError(Text.literal("表示月は yyyy-MM 形式で指定してください"));
+	            context.getSource().sendFailure(Component.literal("表示月は yyyy-MM 形式で指定してください"));
 	            return 0;
 	        }
 	    }
 
-	    private static int setAreaMonthCurrent(CommandContext<ServerCommandSource> context) {
+	    private static int setAreaMonthCurrent(CommandContext<CommandSourceStack> context) {
 	        MonthlyAreaStatsManager.setDisplayedMonthToCurrent();
-	        context.getSource().sendFeedback(Text.literal("月間範囲統計の表示月を現在月 " + MonthlyAreaStatsManager.getDisplayedMonth() + " に変更しました"), true);
+	        context.getSource().sendSuccess(() -> Component.literal("月間範囲統計の表示月を現在月 " + MonthlyAreaStatsManager.getDisplayedMonth() + " に変更しました"), true);
 	        return 1;
 	    }
 
-	    private static int updateAreas(CommandContext<ServerCommandSource> context) {
+	    private static int updateAreas(CommandContext<CommandSourceStack> context) {
 	        MonthlyAreaStatsManager.updateAllScoreboards();
-	        context.getSource().sendFeedback(Text.literal("月間範囲統計のスコアボードを更新しました"), true);
+	        context.getSource().sendSuccess(() -> Component.literal("月間範囲統計のスコアボードを更新しました"), true);
 	        return 1;
 	    }
 
-	    private static CompletableFuture<Suggestions> suggestAreas(CommandContext<ServerCommandSource> context, SuggestionsBuilder builder) {
+	    private static CompletableFuture<Suggestions> suggestAreas(CommandContext<CommandSourceStack> context, SuggestionsBuilder builder) {
 	        for (MonthlyAreaStatsManager.AreaConfig area : MonthlyAreaStatsManager.getAreas()) {
-	            builder.suggest(area.id, Text.literal(area.displayName));
+	            builder.suggest(area.id, Component.literal(area.displayName));
 	        }
 	        return builder.buildFuture();
 	    }
 
-	    private static CompletableFuture<Suggestions> suggestAreaMonths(CommandContext<ServerCommandSource> context, SuggestionsBuilder builder) {
+	    private static CompletableFuture<Suggestions> suggestAreaMonths(CommandContext<CommandSourceStack> context, SuggestionsBuilder builder) {
 	        ArrayList<String> months = new ArrayList<>(MonthlyAreaStatsManager.getKnownMonths());
 	        months.sort(Comparator.reverseOrder());
 	        for (String month : months) {
@@ -394,7 +393,7 @@ public class ServerScoreboardCommands {
 	        return builder.buildFuture();
 	    }
 
-	    private static int addTotalStat(CommandContext<ServerCommandSource> context) {
+	    private static int addTotalStat(CommandContext<CommandSourceStack> context) {
         try {
             String id = StringArgumentType.getString(context, "id");
             String displayName = StringArgumentType.getString(context, "displayName");
@@ -402,33 +401,33 @@ public class ServerScoreboardCommands {
 
             TotalStatsManager.addCustomTotalStat(id, displayName, statType);
 
-            context.getSource().sendFeedback(
-                Text.literal("トータル統計「" + displayName + "」を追加しました"),
+            context.getSource().sendSuccess(() -> 
+                Component.literal("トータル統計「" + displayName + "」を追加しました"),
                 true
             );
 
             return 1;
         } catch (Exception e) {
             ServerScoreboardLogger.error("Error adding total stat", e);
-            context.getSource().sendError(Text.literal("トータル統計の追加中にエラーが発生しました: " + e.getMessage()));
+            context.getSource().sendFailure(Component.literal("トータル統計の追加中にエラーが発生しました: " + e.getMessage()));
             return 0;
         }
     }
 
-    private static int listTotalStats(CommandContext<ServerCommandSource> context) {
+    private static int listTotalStats(CommandContext<CommandSourceStack> context) {
         try {
             var objectives = TotalStatsManager.getAllTotalObjectives();
 
             if (objectives.isEmpty()) {
-                context.getSource().sendFeedback(Text.literal("トータル統計が登録されていません"), false);
+                context.getSource().sendSuccess(() -> Component.literal("トータル統計が登録されていません"), false);
                 return 1;
             }
 
-            context.getSource().sendFeedback(Text.literal("=== トータル統計一覧 ==="), false);
+            context.getSource().sendSuccess(() -> Component.literal("=== トータル統計一覧 ==="), false);
             for (String objName : objectives) {
                 String displayName = TotalStatsManager.getTotalDisplayName(objName);
-                context.getSource().sendFeedback(
-                    Text.literal("- " + objName + " (" + displayName + ")"),
+                context.getSource().sendSuccess(() -> 
+                    Component.literal("- " + objName + " (" + displayName + ")"),
                     false
                 );
             }
@@ -436,29 +435,29 @@ public class ServerScoreboardCommands {
             return 1;
         } catch (Exception e) {
             ServerScoreboardLogger.error("Error listing total stats", e);
-            context.getSource().sendError(Text.literal("トータル統計の一覧表示中にエラーが発生しました: " + e.getMessage()));
+            context.getSource().sendFailure(Component.literal("トータル統計の一覧表示中にエラーが発生しました: " + e.getMessage()));
             return 0;
         }
     }
 
-    private static int updateTotalStats(CommandContext<ServerCommandSource> context) {
+    private static int updateTotalStats(CommandContext<CommandSourceStack> context) {
         try {
             TotalStatsManager.updateAllTotalStats();
 
-            context.getSource().sendFeedback(
-                Text.literal("全てのトータル統計を更新しました"),
+            context.getSource().sendSuccess(() -> 
+                Component.literal("全てのトータル統計を更新しました"),
                 true
             );
 
             return 1;
         } catch (Exception e) {
             ServerScoreboardLogger.error("Error updating total stats", e);
-            context.getSource().sendError(Text.literal("トータル統計の更新中にエラーが発生しました: " + e.getMessage()));
+            context.getSource().sendFailure(Component.literal("トータル統計の更新中にエラーが発生しました: " + e.getMessage()));
             return 0;
         }
     }
 
-    private static CompletableFuture<Suggestions> suggestAvailableStats(CommandContext<ServerCommandSource> context, SuggestionsBuilder builder) {
+    private static CompletableFuture<Suggestions> suggestAvailableStats(CommandContext<CommandSourceStack> context, SuggestionsBuilder builder) {
         Map<String, String> availableStats = TotalStatsManager.getAllAvailableStats();
         Set<String> enabledStats = TotalStatsManager.getEnabledStats();
 
@@ -467,89 +466,89 @@ public class ServerScoreboardCommands {
             String displayName = entry.getValue();
             // Only suggest stats that are not already enabled
             if (!enabledStats.contains(statId)) {
-                builder.suggest(statId, Text.literal(displayName));
+                builder.suggest(statId, Component.literal(displayName));
             }
         }
 
         return builder.buildFuture();
     }
 
-    private static CompletableFuture<Suggestions> suggestEnabledStats(CommandContext<ServerCommandSource> context, SuggestionsBuilder builder) {
+    private static CompletableFuture<Suggestions> suggestEnabledStats(CommandContext<CommandSourceStack> context, SuggestionsBuilder builder) {
         Set<String> enabledStats = TotalStatsManager.getEnabledStats();
         Map<String, String> availableStats = TotalStatsManager.getAllAvailableStats();
 
         for (String statId : enabledStats) {
             String displayName = availableStats.getOrDefault(statId, statId);
-            builder.suggest(statId, Text.literal(displayName));
+            builder.suggest(statId, Component.literal(displayName));
         }
 
         return builder.buildFuture();
     }
 
-    private static int enableStat(CommandContext<ServerCommandSource> context) {
+    private static int enableStat(CommandContext<CommandSourceStack> context) {
         try {
             String statId = StringArgumentType.getString(context, "stat");
 
             if (!TotalStatsManager.getAllAvailableStats().containsKey(statId)) {
-                context.getSource().sendError(Text.literal("不明な統計: " + statId));
+                context.getSource().sendFailure(Component.literal("不明な統計: " + statId));
                 return 0;
             }
 
             TotalStatsManager.enableStat(statId);
 
-            context.getSource().sendFeedback(
-                Text.literal("統計を有効化しました: " + statId),
+            context.getSource().sendSuccess(() -> 
+                Component.literal("統計を有効化しました: " + statId),
                 true
             );
 
             return 1;
         } catch (Exception e) {
             ServerScoreboardLogger.error("Error enabling stat", e);
-            context.getSource().sendError(Text.literal("統計の有効化中にエラーが発生しました: " + e.getMessage()));
+            context.getSource().sendFailure(Component.literal("統計の有効化中にエラーが発生しました: " + e.getMessage()));
             return 0;
         }
     }
 
-    private static int disableStat(CommandContext<ServerCommandSource> context) {
+    private static int disableStat(CommandContext<CommandSourceStack> context) {
         try {
             String statId = StringArgumentType.getString(context, "stat");
 
             TotalStatsManager.disableStat(statId);
 
-            context.getSource().sendFeedback(
-                Text.literal("統計を無効化しました: " + statId),
+            context.getSource().sendSuccess(() -> 
+                Component.literal("統計を無効化しました: " + statId),
                 true
             );
 
             return 1;
         } catch (Exception e) {
             ServerScoreboardLogger.error("Error disabling stat", e);
-            context.getSource().sendError(Text.literal("統計の無効化中にエラーが発生しました: " + e.getMessage()));
+            context.getSource().sendFailure(Component.literal("統計の無効化中にエラーが発生しました: " + e.getMessage()));
             return 0;
         }
     }
 
-    private static int listStatStatus(CommandContext<ServerCommandSource> context) {
+    private static int listStatStatus(CommandContext<CommandSourceStack> context) {
         try {
             Map<String, String> allStats = TotalStatsManager.getAllAvailableStats();
             Set<String> enabledStats = TotalStatsManager.getEnabledStats();
 
-            context.getSource().sendFeedback(Text.literal("=== 統計の状態 ==="), false);
+            context.getSource().sendSuccess(() -> Component.literal("=== 統計の状態 ==="), false);
 
-            context.getSource().sendFeedback(Text.literal("有効:").formatted(Formatting.GREEN), false);
+            context.getSource().sendSuccess(() -> Component.literal("有効:").withStyle(ChatFormatting.GREEN), false);
             for (String statId : enabledStats) {
                 String displayName = allStats.getOrDefault(statId, statId);
-                context.getSource().sendFeedback(
-                    Text.literal("  - " + statId + " (" + displayName + ")").formatted(Formatting.GREEN),
+                context.getSource().sendSuccess(() -> 
+                    Component.literal("  - " + statId + " (" + displayName + ")").withStyle(ChatFormatting.GREEN),
                     false
                 );
             }
 
-            context.getSource().sendFeedback(Text.literal("\n無効:").formatted(Formatting.RED), false);
+            context.getSource().sendSuccess(() -> Component.literal("\n無効:").withStyle(ChatFormatting.RED), false);
             for (Map.Entry<String, String> entry : allStats.entrySet()) {
                 if (!enabledStats.contains(entry.getKey())) {
-                    context.getSource().sendFeedback(
-                        Text.literal("  - " + entry.getKey() + " (" + entry.getValue() + ")").formatted(Formatting.RED),
+                    context.getSource().sendSuccess(() -> 
+                        Component.literal("  - " + entry.getKey() + " (" + entry.getValue() + ")").withStyle(ChatFormatting.RED),
                         false
                     );
                 }
@@ -558,141 +557,141 @@ public class ServerScoreboardCommands {
             return 1;
         } catch (Exception e) {
             ServerScoreboardLogger.error("Error listing stat status", e);
-            context.getSource().sendError(Text.literal("統計の一覧表示中にエラーが発生しました: " + e.getMessage()));
+            context.getSource().sendFailure(Component.literal("統計の一覧表示中にエラーが発生しました: " + e.getMessage()));
             return 0;
         }
     }
 
-    private static int showTotalHelp(CommandContext<ServerCommandSource> context) {
-        context.getSource().sendFeedback(Text.literal("=== トータル統計コマンドの使い方 ===").formatted(Formatting.GOLD), false);
-        context.getSource().sendFeedback(Text.literal(""), false);
-        context.getSource().sendFeedback(Text.literal("/mysb total add <id> <displayName> <statType>").formatted(Formatting.YELLOW), false);
-        context.getSource().sendFeedback(Text.literal("  新しいトータル統計を追加").formatted(Formatting.GRAY), false);
-        context.getSource().sendFeedback(Text.literal("  例: /mysb total add damage \"Total Damage Dealt\" damage_dealt").formatted(Formatting.DARK_GRAY), false);
-        context.getSource().sendFeedback(Text.literal(""), false);
-        context.getSource().sendFeedback(Text.literal("/mysb total list").formatted(Formatting.YELLOW), false);
-        context.getSource().sendFeedback(Text.literal("  登録されているトータル統計を一覧表示").formatted(Formatting.GRAY), false);
-        context.getSource().sendFeedback(Text.literal(""), false);
-        context.getSource().sendFeedback(Text.literal("/mysb total update").formatted(Formatting.YELLOW), false);
-        context.getSource().sendFeedback(Text.literal("  トータル統計を手動更新").formatted(Formatting.GRAY), false);
-        context.getSource().sendFeedback(Text.literal(""), false);
-        context.getSource().sendFeedback(Text.literal("/mysb total remove <id>").formatted(Formatting.YELLOW), false);
-        context.getSource().sendFeedback(Text.literal("  カスタムトータル統計を削除").formatted(Formatting.GRAY), false);
-        context.getSource().sendFeedback(Text.literal(""), false);
-        context.getSource().sendFeedback(Text.literal("利用可能な統計タイプ:").formatted(Formatting.AQUA), false);
-        context.getSource().sendFeedback(Text.literal("  mined, placed, killed, deaths, damage_dealt,").formatted(Formatting.DARK_AQUA), false);
-        context.getSource().sendFeedback(Text.literal("  damage_taken, play_time, walk_one_cm, jump, fish_caught").formatted(Formatting.DARK_AQUA), false);
+    private static int showTotalHelp(CommandContext<CommandSourceStack> context) {
+        context.getSource().sendSuccess(() -> Component.literal("=== トータル統計コマンドの使い方 ===").withStyle(ChatFormatting.GOLD), false);
+        context.getSource().sendSuccess(() -> Component.literal(""), false);
+        context.getSource().sendSuccess(() -> Component.literal("/mysb total add <id> <displayName> <statType>").withStyle(ChatFormatting.YELLOW), false);
+        context.getSource().sendSuccess(() -> Component.literal("  新しいトータル統計を追加").withStyle(ChatFormatting.GRAY), false);
+        context.getSource().sendSuccess(() -> Component.literal("  例: /mysb total add damage \"Total Damage Dealt\" damage_dealt").withStyle(ChatFormatting.DARK_GRAY), false);
+        context.getSource().sendSuccess(() -> Component.literal(""), false);
+        context.getSource().sendSuccess(() -> Component.literal("/mysb total list").withStyle(ChatFormatting.YELLOW), false);
+        context.getSource().sendSuccess(() -> Component.literal("  登録されているトータル統計を一覧表示").withStyle(ChatFormatting.GRAY), false);
+        context.getSource().sendSuccess(() -> Component.literal(""), false);
+        context.getSource().sendSuccess(() -> Component.literal("/mysb total update").withStyle(ChatFormatting.YELLOW), false);
+        context.getSource().sendSuccess(() -> Component.literal("  トータル統計を手動更新").withStyle(ChatFormatting.GRAY), false);
+        context.getSource().sendSuccess(() -> Component.literal(""), false);
+        context.getSource().sendSuccess(() -> Component.literal("/mysb total remove <id>").withStyle(ChatFormatting.YELLOW), false);
+        context.getSource().sendSuccess(() -> Component.literal("  カスタムトータル統計を削除").withStyle(ChatFormatting.GRAY), false);
+        context.getSource().sendSuccess(() -> Component.literal(""), false);
+        context.getSource().sendSuccess(() -> Component.literal("利用可能な統計タイプ:").withStyle(ChatFormatting.AQUA), false);
+        context.getSource().sendSuccess(() -> Component.literal("  mined, placed, killed, deaths, damage_dealt,").withStyle(ChatFormatting.DARK_AQUA), false);
+        context.getSource().sendSuccess(() -> Component.literal("  damage_taken, play_time, walk_one_cm, jump, fish_caught").withStyle(ChatFormatting.DARK_AQUA), false);
         return 1;
     }
 
-    private static CompletableFuture<Suggestions> suggestStatTypes(CommandContext<ServerCommandSource> context, SuggestionsBuilder builder) {
+    private static CompletableFuture<Suggestions> suggestStatTypes(CommandContext<CommandSourceStack> context, SuggestionsBuilder builder) {
         // 利用可能な統計タイプをサジェスト
         Map<String, String> commonStats = TotalStatsManager.COMMON_STATS;
         for (Map.Entry<String, String> entry : commonStats.entrySet()) {
-            builder.suggest(entry.getKey(), Text.literal(entry.getValue()));
+            builder.suggest(entry.getKey(), Component.literal(entry.getValue()));
         }
         return builder.buildFuture();
     }
 
-    private static CompletableFuture<Suggestions> suggestCustomStats(CommandContext<ServerCommandSource> context, SuggestionsBuilder builder) {
+    private static CompletableFuture<Suggestions> suggestCustomStats(CommandContext<CommandSourceStack> context, SuggestionsBuilder builder) {
         // カスタム統計のIDをサジェスト（デフォルト以外）
         Map<String, String> allStats = TotalStatsManager.getAllAvailableStats();
         for (String statId : allStats.keySet()) {
             // デフォルト統計以外をサジェスト
             if (!statId.equals("mined") && !statId.equals("placed") &&
                 !statId.equals("killed") && !statId.equals("deaths")) {
-                builder.suggest(statId, Text.literal(allStats.get(statId)));
+                builder.suggest(statId, Component.literal(allStats.get(statId)));
             }
         }
         return builder.buildFuture();
     }
 
-    private static int removeTotalStat(CommandContext<ServerCommandSource> context) {
+    private static int removeTotalStat(CommandContext<CommandSourceStack> context) {
         try {
             String id = StringArgumentType.getString(context, "id");
 
             // デフォルト統計は削除できない
             if (id.equals("mined") || id.equals("placed") || id.equals("killed") || id.equals("deaths")) {
-                context.getSource().sendError(Text.literal("デフォルト統計は削除できません"));
+                context.getSource().sendFailure(Component.literal("デフォルト統計は削除できません"));
                 return 0;
             }
 
             TotalStatsManager.disableStat(id);
 
-            context.getSource().sendFeedback(
-                Text.literal("トータル統計「" + id + "」を削除しました"),
+            context.getSource().sendSuccess(() -> 
+                Component.literal("トータル統計「" + id + "」を削除しました"),
                 true
             );
 
             return 1;
         } catch (Exception e) {
             ServerScoreboardLogger.error("Error removing total stat", e);
-            context.getSource().sendError(Text.literal("トータル統計の削除中にエラーが発生しました: " + e.getMessage()));
+            context.getSource().sendFailure(Component.literal("トータル統計の削除中にエラーが発生しました: " + e.getMessage()));
             return 0;
         }
     }
 
-    private static int excludePlayer(CommandContext<ServerCommandSource> context) {
+    private static int excludePlayer(CommandContext<CommandSourceStack> context) {
         try {
             String playerName = StringArgumentType.getString(context, "player");
 
             if (TotalStatsManager.isPlayerExcluded(playerName)) {
-                context.getSource().sendError(Text.literal("プレイヤー " + playerName + " は既に除外されています"));
+                context.getSource().sendFailure(Component.literal("プレイヤー " + playerName + " は既に除外されています"));
                 return 0;
             }
 
             TotalStatsManager.excludePlayer(playerName);
 
-            context.getSource().sendFeedback(
-                Text.literal("プレイヤー " + playerName + " を統計から除外しました"),
+            context.getSource().sendSuccess(() -> 
+                Component.literal("プレイヤー " + playerName + " を統計から除外しました"),
                 true
             );
 
             return 1;
         } catch (Exception e) {
             ServerScoreboardLogger.error("Error excluding player", e);
-            context.getSource().sendError(Text.literal("プレイヤーの除外中にエラーが発生しました: " + e.getMessage()));
+            context.getSource().sendFailure(Component.literal("プレイヤーの除外中にエラーが発生しました: " + e.getMessage()));
             return 0;
         }
     }
 
-    private static int includePlayer(CommandContext<ServerCommandSource> context) {
+    private static int includePlayer(CommandContext<CommandSourceStack> context) {
         try {
             String playerName = StringArgumentType.getString(context, "player");
 
             if (!TotalStatsManager.isPlayerExcluded(playerName)) {
-                context.getSource().sendError(Text.literal("プレイヤー " + playerName + " は除外されていません"));
+                context.getSource().sendFailure(Component.literal("プレイヤー " + playerName + " は除外されていません"));
                 return 0;
             }
 
             TotalStatsManager.includePlayer(playerName);
 
-            context.getSource().sendFeedback(
-                Text.literal("プレイヤー " + playerName + " を統計に含めるようにしました"),
+            context.getSource().sendSuccess(() -> 
+                Component.literal("プレイヤー " + playerName + " を統計に含めるようにしました"),
                 true
             );
 
             return 1;
         } catch (Exception e) {
             ServerScoreboardLogger.error("Error including player", e);
-            context.getSource().sendError(Text.literal("プレイヤーの包含中にエラーが発生しました: " + e.getMessage()));
+            context.getSource().sendFailure(Component.literal("プレイヤーの包含中にエラーが発生しました: " + e.getMessage()));
             return 0;
         }
     }
 
-    private static int listExcludedPlayers(CommandContext<ServerCommandSource> context) {
+    private static int listExcludedPlayers(CommandContext<CommandSourceStack> context) {
         try {
             Set<String> excludedPlayers = TotalStatsManager.getExcludedPlayers();
 
             if (excludedPlayers.isEmpty()) {
-                context.getSource().sendFeedback(Text.literal("除外されているプレイヤーはいません"), false);
+                context.getSource().sendSuccess(() -> Component.literal("除外されているプレイヤーはいません"), false);
                 return 1;
             }
 
-            context.getSource().sendFeedback(Text.literal("=== 除外されているプレイヤー ===").formatted(Formatting.GOLD), false);
+            context.getSource().sendSuccess(() -> Component.literal("=== 除外されているプレイヤー ===").withStyle(ChatFormatting.GOLD), false);
             for (String playerName : excludedPlayers) {
-                context.getSource().sendFeedback(
-                    Text.literal("- " + playerName).formatted(Formatting.YELLOW),
+                context.getSource().sendSuccess(() -> 
+                    Component.literal("- " + playerName).withStyle(ChatFormatting.YELLOW),
                     false
                 );
             }
@@ -700,13 +699,13 @@ public class ServerScoreboardCommands {
             return 1;
         } catch (Exception e) {
             ServerScoreboardLogger.error("Error listing excluded players", e);
-            context.getSource().sendError(Text.literal("除外プレイヤーリストの表示中にエラーが発生しました: " + e.getMessage()));
+            context.getSource().sendFailure(Component.literal("除外プレイヤーリストの表示中にエラーが発生しました: " + e.getMessage()));
             return 0;
         }
     }
 
-    private static CompletableFuture<Suggestions> suggestOnlinePlayers(CommandContext<ServerCommandSource> context, SuggestionsBuilder builder) {
-        for (ServerPlayerEntity player : context.getSource().getServer().getPlayerManager().getPlayerList()) {
+    private static CompletableFuture<Suggestions> suggestOnlinePlayers(CommandContext<CommandSourceStack> context, SuggestionsBuilder builder) {
+        for (ServerPlayer player : context.getSource().getServer().getPlayerList().getPlayers()) {
             String playerName = player.getName().getString();
             if (!TotalStatsManager.isPlayerExcluded(playerName)) {
                 builder.suggest(playerName);
@@ -715,24 +714,24 @@ public class ServerScoreboardCommands {
         return builder.buildFuture();
     }
 
-    private static CompletableFuture<Suggestions> suggestExcludedPlayers(CommandContext<ServerCommandSource> context, SuggestionsBuilder builder) {
+    private static CompletableFuture<Suggestions> suggestExcludedPlayers(CommandContext<CommandSourceStack> context, SuggestionsBuilder builder) {
         for (String playerName : TotalStatsManager.getExcludedPlayers()) {
             builder.suggest(playerName);
         }
         return builder.buildFuture();
     }
 
-    private static int showVersion(CommandContext<ServerCommandSource> context) {
-        context.getSource().sendFeedback(
-            Text.literal("MySB - My Scoreboard").formatted(Formatting.GOLD)
-                .append(Text.literal(" Version: ").formatted(Formatting.GRAY))
-                .append(Text.literal(ServerOnlyScoreboardMod.getModVersion()).formatted(Formatting.AQUA)),
+    private static int showVersion(CommandContext<CommandSourceStack> context) {
+        context.getSource().sendSuccess(() -> 
+            Component.literal("MySB - My Scoreboard").withStyle(ChatFormatting.GOLD)
+                .append(Component.literal(" Version: ").withStyle(ChatFormatting.GRAY))
+                .append(Component.literal(ServerOnlyScoreboardMod.getModVersion()).withStyle(ChatFormatting.AQUA)),
             false
         );
         return 1;
     }
 
-    private static int enableFakePlayerScore(CommandContext<ServerCommandSource> context) {
+    private static int enableFakePlayerScore(CommandContext<CommandSourceStack> context) {
         try {
             ServerScoreboardConfig.FAKE_PLAYER_SCORE_ENABLED = true;
             // 設定を即座に永続化
@@ -740,24 +739,24 @@ public class ServerScoreboardCommands {
             // 統計を即座に再計算（fake player を再表示するため）
             TotalStatsManager.scheduleInstantUpdate();
 
-            context.getSource().sendFeedback(
-                Text.literal("Fake Player のスコア表示を有効にしました").formatted(Formatting.GREEN),
+            context.getSource().sendSuccess(() -> 
+                Component.literal("Fake Player のスコア表示を有効にしました").withStyle(ChatFormatting.GREEN),
                 true
             );
 
             return 1;
         } catch (Exception e) {
             ServerScoreboardLogger.error("Error enabling fake player score", e);
-            context.getSource().sendError(Text.literal("Fake Player スコア有効化中にエラーが発生しました: " + e.getMessage()));
+            context.getSource().sendFailure(Component.literal("Fake Player スコア有効化中にエラーが発生しました: " + e.getMessage()));
             return 0;
         }
     }
 
-    private static int disableFakePlayerScore(CommandContext<ServerCommandSource> context) {
+    private static int disableFakePlayerScore(CommandContext<CommandSourceStack> context) {
         try {
             ServerScoreboardConfig.FAKE_PLAYER_SCORE_ENABLED = false;
             // 現在オンラインの Carpet fake player をすべて検出して既知リストに登録
-            for (ServerPlayerEntity online : context.getSource().getServer().getPlayerManager().getPlayerList()) {
+            for (ServerPlayer online : context.getSource().getServer().getPlayerList().getPlayers()) {
                 FakePlayerDetector.registerIfFakePlayer(online);
             }
             // 設定を即座に永続化
@@ -767,114 +766,114 @@ public class ServerScoreboardCommands {
             // 月間範囲統計のスコアボードも再計算
             MonthlyAreaStatsManager.updateAllScoreboards();
 
-            context.getSource().sendFeedback(
-                Text.literal("Fake Player のスコア表示を無効にしました").formatted(Formatting.YELLOW),
+            context.getSource().sendSuccess(() -> 
+                Component.literal("Fake Player のスコア表示を無効にしました").withStyle(ChatFormatting.YELLOW),
                 true
             );
 
             return 1;
         } catch (Exception e) {
             ServerScoreboardLogger.error("Error disabling fake player score", e);
-            context.getSource().sendError(Text.literal("Fake Player スコア無効化中にエラーが発生しました: " + e.getMessage()));
+            context.getSource().sendFailure(Component.literal("Fake Player スコア無効化中にエラーが発生しました: " + e.getMessage()));
             return 0;
         }
     }
 
     // ========== Discord Commands ==========
 
-    private static int openDiscordGUI(CommandContext<ServerCommandSource> context) {
+    private static int openDiscordGUI(CommandContext<CommandSourceStack> context) {
         try {
-            ServerCommandSource source = context.getSource();
-            if (source.getEntity() instanceof ServerPlayerEntity player) {
+            CommandSourceStack source = context.getSource();
+            if (source.getEntity() instanceof ServerPlayer player) {
                 // Rate limit check
-                if (!RateLimiter.canPerformAction(player.getUuid(), "gui", ServerScoreboardConfig.GUI_OPEN_COOLDOWN_MS)) {
-                    source.sendError(Text.literal("コマンドを実行するには少し待ってください"));
+                if (!RateLimiter.canPerformAction(player.getUUID(), "gui", ServerScoreboardConfig.GUI_OPEN_COOLDOWN_MS)) {
+                    source.sendFailure(Component.literal("コマンドを実行するには少し待ってください"));
                     return 0;
                 }
 
                 DiscordSettingsGUI.openFor(player);
                 return 1;
             } else {
-                source.sendError(Text.literal("このコマンドはプレイヤーのみ実行できます"));
+                source.sendFailure(Component.literal("このコマンドはプレイヤーのみ実行できます"));
                 return 0;
             }
         } catch (Exception e) {
             ServerScoreboardLogger.error("Error opening Discord GUI", e);
-            context.getSource().sendError(Text.literal("Discord GUI を開く際にエラーが発生しました: " + e.getMessage()));
+            context.getSource().sendFailure(Component.literal("Discord GUI を開く際にエラーが発生しました: " + e.getMessage()));
             return 0;
         }
     }
 
-    private static int setDiscordChannel(CommandContext<ServerCommandSource> context) {
+    private static int setDiscordChannel(CommandContext<CommandSourceStack> context) {
         try {
             String channelId = StringArgumentType.getString(context, "id");
 
             // チャンネルIDのバリデーション（数字のみ）
             if (!channelId.matches("\\d+")) {
-                context.getSource().sendError(Text.literal("無効なチャンネルID: 数字のみを入力してください"));
+                context.getSource().sendFailure(Component.literal("無効なチャンネルID: 数字のみを入力してください"));
                 return 0;
             }
 
             DiscordConfig.setForumChannelId(channelId);
 
-            context.getSource().sendFeedback(
-                Text.literal("Discordフォーラムチャンネルを設定しました: " + channelId).formatted(Formatting.GREEN),
+            context.getSource().sendSuccess(() -> 
+                Component.literal("Discordフォーラムチャンネルを設定しました: " + channelId).withStyle(ChatFormatting.GREEN),
                 true
             );
 
             return 1;
         } catch (Exception e) {
             ServerScoreboardLogger.error("Error setting Discord channel", e);
-            context.getSource().sendError(Text.literal("チャンネル設定中にエラーが発生しました: " + e.getMessage()));
+            context.getSource().sendFailure(Component.literal("チャンネル設定中にエラーが発生しました: " + e.getMessage()));
             return 0;
         }
     }
 
-    private static int showDiscordStatus(CommandContext<ServerCommandSource> context) {
+    private static int showDiscordStatus(CommandContext<CommandSourceStack> context) {
         try {
-            ServerCommandSource source = context.getSource();
+            CommandSourceStack source = context.getSource();
 
-            source.sendFeedback(Text.literal("=== Discord連携ステータス ===").formatted(Formatting.GOLD), false);
+            source.sendSuccess(() -> Component.literal("=== Discord連携ステータス ===").withStyle(ChatFormatting.GOLD), false);
 
             // Token設定状態
             boolean hasToken = DiscordConfig.hasValidToken();
-            source.sendFeedback(
-                Text.literal("Bot Token: ").formatted(Formatting.GRAY)
-                    .append(Text.literal(hasToken ? "設定済み" : "未設定").formatted(hasToken ? Formatting.GREEN : Formatting.RED)),
+            source.sendSuccess(() -> 
+                Component.literal("Bot Token: ").withStyle(ChatFormatting.GRAY)
+                    .append(Component.literal(hasToken ? "設定済み" : "未設定").withStyle(hasToken ? ChatFormatting.GREEN : ChatFormatting.RED)),
                 false
             );
 
             // フォーラムチャンネル
             boolean hasChannel = DiscordConfig.hasForumChannelId();
-            source.sendFeedback(
-                Text.literal("フォーラムチャンネル: ").formatted(Formatting.GRAY)
-                    .append(Text.literal(hasChannel ? DiscordConfig.getForumChannelId() : "未設定")
-                        .formatted(hasChannel ? Formatting.GREEN : Formatting.RED)),
+            source.sendSuccess(() -> 
+                Component.literal("フォーラムチャンネル: ").withStyle(ChatFormatting.GRAY)
+                    .append(Component.literal(hasChannel ? DiscordConfig.getForumChannelId() : "未設定")
+                        .withStyle(hasChannel ? ChatFormatting.GREEN : ChatFormatting.RED)),
                 false
             );
 
             // 接続状態
             boolean connected = DiscordManager.isConnectionVerified();
-            source.sendFeedback(
-                Text.literal("接続状態: ").formatted(Formatting.GRAY)
-                    .append(Text.literal(connected ? "接続中" : "未接続").formatted(connected ? Formatting.GREEN : Formatting.RED)),
+            source.sendSuccess(() -> 
+                Component.literal("接続状態: ").withStyle(ChatFormatting.GRAY)
+                    .append(Component.literal(connected ? "接続中" : "未接続").withStyle(connected ? ChatFormatting.GREEN : ChatFormatting.RED)),
                 false
             );
 
             // Discord有効統計
             Set<String> enabledStats = DiscordConfig.getDiscordEnabledStats();
-            source.sendFeedback(
-                Text.literal("Discord有効統計: ").formatted(Formatting.GRAY)
-                    .append(Text.literal(enabledStats.isEmpty() ? "なし" : String.join(", ", enabledStats))
-                        .formatted(enabledStats.isEmpty() ? Formatting.YELLOW : Formatting.AQUA)),
+            source.sendSuccess(() -> 
+                Component.literal("Discord有効統計: ").withStyle(ChatFormatting.GRAY)
+                    .append(Component.literal(enabledStats.isEmpty() ? "なし" : String.join(", ", enabledStats))
+                        .withStyle(enabledStats.isEmpty() ? ChatFormatting.YELLOW : ChatFormatting.AQUA)),
                 false
             );
 
             // 次回更新
             if (connected && !enabledStats.isEmpty()) {
-                source.sendFeedback(
-                    Text.literal("次回更新まで: ").formatted(Formatting.GRAY)
-                        .append(Text.literal(DiscordScheduler.getTimeUntilNextUpdateFormatted()).formatted(Formatting.AQUA)),
+                source.sendSuccess(() -> 
+                    Component.literal("次回更新まで: ").withStyle(ChatFormatting.GRAY)
+                        .append(Component.literal(DiscordScheduler.getTimeUntilNextUpdateFormatted()).withStyle(ChatFormatting.AQUA)),
                     false
                 );
             }
@@ -882,110 +881,110 @@ public class ServerScoreboardCommands {
             return 1;
         } catch (Exception e) {
             ServerScoreboardLogger.error("Error showing Discord status", e);
-            context.getSource().sendError(Text.literal("ステータス表示中にエラーが発生しました: " + e.getMessage()));
+            context.getSource().sendFailure(Component.literal("ステータス表示中にエラーが発生しました: " + e.getMessage()));
             return 0;
         }
     }
 
-    private static int reconnectDiscord(CommandContext<ServerCommandSource> context) {
+    private static int reconnectDiscord(CommandContext<CommandSourceStack> context) {
         try {
             if (!DiscordConfig.hasValidToken()) {
-                context.getSource().sendError(Text.literal("Bot Tokenが設定されていません"));
+                context.getSource().sendFailure(Component.literal("Bot Tokenが設定されていません"));
                 return 0;
             }
 
-            context.getSource().sendFeedback(
-                Text.literal("Discord接続をテスト中...").formatted(Formatting.YELLOW),
+            context.getSource().sendSuccess(() -> 
+                Component.literal("Discord接続をテスト中...").withStyle(ChatFormatting.YELLOW),
                 false
             );
 
             DiscordManager.resetConnection();
             DiscordManager.testConnection().thenAccept(success -> {
                 if (success) {
-                    context.getSource().sendFeedback(
-                        Text.literal("Discord接続に成功しました").formatted(Formatting.GREEN),
+                    context.getSource().sendSuccess(() -> 
+                        Component.literal("Discord接続に成功しました").withStyle(ChatFormatting.GREEN),
                         true
                     );
                 } else {
-                    context.getSource().sendError(Text.literal("Discord接続に失敗しました"));
+                    context.getSource().sendFailure(Component.literal("Discord接続に失敗しました"));
                 }
             });
 
             return 1;
         } catch (Exception e) {
             ServerScoreboardLogger.error("Error reconnecting Discord", e);
-            context.getSource().sendError(Text.literal("再接続中にエラーが発生しました: " + e.getMessage()));
+            context.getSource().sendFailure(Component.literal("再接続中にエラーが発生しました: " + e.getMessage()));
             return 0;
         }
     }
 
-    private static int testDiscord(CommandContext<ServerCommandSource> context) {
+    private static int testDiscord(CommandContext<CommandSourceStack> context) {
         try {
             if (!DiscordConfig.hasValidToken()) {
-                context.getSource().sendError(Text.literal("Bot Tokenが設定されていません"));
+                context.getSource().sendFailure(Component.literal("Bot Tokenが設定されていません"));
                 return 0;
             }
 
             if (!DiscordConfig.hasForumChannelId()) {
-                context.getSource().sendError(Text.literal("フォーラムチャンネルIDが設定されていません"));
+                context.getSource().sendFailure(Component.literal("フォーラムチャンネルIDが設定されていません"));
                 return 0;
             }
 
-            context.getSource().sendFeedback(
-                Text.literal("テスト投稿を実行中...").formatted(Formatting.YELLOW),
+            context.getSource().sendSuccess(() -> 
+                Component.literal("テスト投稿を実行中...").withStyle(ChatFormatting.YELLOW),
                 false
             );
 
             DiscordStatsPublisher.testPublish().thenAccept(success -> {
                 if (success) {
-                    context.getSource().sendFeedback(
-                        Text.literal("テスト投稿に成功しました").formatted(Formatting.GREEN),
+                    context.getSource().sendSuccess(() -> 
+                        Component.literal("テスト投稿に成功しました").withStyle(ChatFormatting.GREEN),
                         true
                     );
                 } else {
-                    context.getSource().sendError(Text.literal("テスト投稿に失敗しました"));
+                    context.getSource().sendFailure(Component.literal("テスト投稿に失敗しました"));
                 }
             });
 
             return 1;
         } catch (Exception e) {
             ServerScoreboardLogger.error("Error testing Discord", e);
-            context.getSource().sendError(Text.literal("テスト投稿中にエラーが発生しました: " + e.getMessage()));
+            context.getSource().sendFailure(Component.literal("テスト投稿中にエラーが発生しました: " + e.getMessage()));
             return 0;
         }
     }
 
-    private static int forceDiscordUpdate(CommandContext<ServerCommandSource> context) {
+    private static int forceDiscordUpdate(CommandContext<CommandSourceStack> context) {
         try {
             if (!DiscordConfig.hasValidToken()) {
-                context.getSource().sendError(Text.literal("Bot Tokenが設定されていません"));
+                context.getSource().sendFailure(Component.literal("Bot Tokenが設定されていません"));
                 return 0;
             }
 
             if (!DiscordConfig.hasForumChannelId()) {
-                context.getSource().sendError(Text.literal("フォーラムチャンネルIDが設定されていません"));
+                context.getSource().sendFailure(Component.literal("フォーラムチャンネルIDが設定されていません"));
                 return 0;
             }
 
             Set<String> enabledStats = DiscordConfig.getDiscordEnabledStats();
             if (enabledStats.isEmpty()) {
-                context.getSource().sendError(Text.literal("Discord有効な統計がありません"));
+                context.getSource().sendFailure(Component.literal("Discord有効な統計がありません"));
                 return 0;
             }
 
             if (DiscordScheduler.isUpdating()) {
-                context.getSource().sendError(Text.literal("更新処理が既に実行中です"));
+                context.getSource().sendFailure(Component.literal("更新処理が既に実行中です"));
                 return 0;
             }
 
-            context.getSource().sendFeedback(
-                Text.literal("Discord統計を更新中...").formatted(Formatting.YELLOW),
+            context.getSource().sendSuccess(() -> 
+                Component.literal("Discord統計を更新中...").withStyle(ChatFormatting.YELLOW),
                 false
             );
 
             DiscordScheduler.forceUpdate().thenRun(() -> {
-                context.getSource().sendFeedback(
-                    Text.literal("Discord統計の更新が完了しました").formatted(Formatting.GREEN),
+                context.getSource().sendSuccess(() -> 
+                    Component.literal("Discord統計の更新が完了しました").withStyle(ChatFormatting.GREEN),
                     true
                 );
             });
@@ -993,7 +992,7 @@ public class ServerScoreboardCommands {
             return 1;
         } catch (Exception e) {
             ServerScoreboardLogger.error("Error forcing Discord update", e);
-            context.getSource().sendError(Text.literal("更新中にエラーが発生しました: " + e.getMessage()));
+            context.getSource().sendFailure(Component.literal("更新中にエラーが発生しました: " + e.getMessage()));
             return 0;
         }
     }

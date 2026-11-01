@@ -2,13 +2,8 @@ package com.astralsmp.mysb;
 
 import com.google.gson.*;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.stat.Stat;
-import net.minecraft.stat.StatType;
-import net.minecraft.stat.Stats;
-import net.minecraft.util.Identifier;
-import net.minecraft.registry.Registries;
-
 import java.io.*;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
@@ -22,7 +17,7 @@ public class PlayerStatsCache {
     
     public static void initialize(MinecraftServer minecraftServer) {
         server = minecraftServer;
-        Path worldRoot = server.getSavePath(net.minecraft.util.WorldSavePath.ROOT);
+        Path worldRoot = server.getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT);
         cacheFile = worldRoot.resolve("mysb").resolve("player_stats_cache.json");
 
         try {

@@ -1,7 +1,7 @@
 package com.astralsmp.mysb;
 
-import net.minecraft.nbt.NbtCompound;
 import java.util.*;
+import net.minecraft.nbt.CompoundTag;
 
 public class ScoreboardTransformData {
     private final UUID playerId;
@@ -55,21 +55,21 @@ public class ScoreboardTransformData {
         return playerId;
     }
     
-    public NbtCompound toNbt() {
-        NbtCompound nbt = new NbtCompound();
+    public CompoundTag toNbt() {
+        CompoundTag nbt = new CompoundTag();
         nbt.putBoolean("enabled", enabled);
         
         // オブジェクティブ表示名マッピングを保存
-        NbtCompound displayMappingsNbt = new NbtCompound();
+        CompoundTag displayMappingsNbt = new CompoundTag();
         for (Map.Entry<String, String> entry : objectiveDisplayNameMappings.entrySet()) {
             displayMappingsNbt.putString(entry.getKey(), entry.getValue());
         }
         nbt.put("objectiveDisplayNameMappings", displayMappingsNbt);
         
         // スコア値オフセットを保存
-        NbtCompound offsetsNbt = new NbtCompound();
+        CompoundTag offsetsNbt = new CompoundTag();
         for (Map.Entry<String, Map<String, Integer>> objEntry : scoreValueOffsets.entrySet()) {
-            NbtCompound objOffsetsNbt = new NbtCompound();
+            CompoundTag objOffsetsNbt = new CompoundTag();
             for (Map.Entry<String, Integer> scoreEntry : objEntry.getValue().entrySet()) {
                 objOffsetsNbt.putInt(scoreEntry.getKey(), scoreEntry.getValue());
             }
@@ -80,27 +80,27 @@ public class ScoreboardTransformData {
         return nbt;
     }
     
-    public void fromNbt(NbtCompound nbt) {
-        this.enabled = nbt.getBoolean("enabled");
+    public void fromNbt(CompoundTag nbt) {
+        this.enabled = nbt.getBooleanOr("enabled", false);
         
         // オブジェクティブ表示名マッピングを読み込み
         objectiveDisplayNameMappings.clear();
         if (nbt.contains("objectiveDisplayNameMappings")) {
-            NbtCompound displayMappingsNbt = nbt.getCompound("objectiveDisplayNameMappings");
-            for (String key : displayMappingsNbt.getKeys()) {
-                objectiveDisplayNameMappings.put(key, displayMappingsNbt.getString(key));
+            CompoundTag displayMappingsNbt = nbt.getCompoundOrEmpty("objectiveDisplayNameMappings");
+            for (String key : displayMappingsNbt.keySet()) {
+                objectiveDisplayNameMappings.put(key, displayMappingsNbt.getStringOr(key, ""));
             }
         }
         
         // スコア値オフセットを読み込み
         scoreValueOffsets.clear();
         if (nbt.contains("scoreValueOffsets")) {
-            NbtCompound offsetsNbt = nbt.getCompound("scoreValueOffsets");
-            for (String objName : offsetsNbt.getKeys()) {
-                NbtCompound objOffsetsNbt = offsetsNbt.getCompound(objName);
+            CompoundTag offsetsNbt = nbt.getCompoundOrEmpty("scoreValueOffsets");
+            for (String objName : offsetsNbt.keySet()) {
+                CompoundTag objOffsetsNbt = offsetsNbt.getCompoundOrEmpty(objName);
                 Map<String, Integer> scoreOffsets = new HashMap<>();
-                for (String scoreName : objOffsetsNbt.getKeys()) {
-                    scoreOffsets.put(scoreName, objOffsetsNbt.getInt(scoreName));
+                for (String scoreName : objOffsetsNbt.keySet()) {
+                    scoreOffsets.put(scoreName, objOffsetsNbt.getIntOr(scoreName, 0));
                 }
                 scoreValueOffsets.put(objName, scoreOffsets);
             }

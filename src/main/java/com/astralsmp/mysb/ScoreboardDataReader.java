@@ -1,11 +1,11 @@
 package com.astralsmp.mysb;
 
-import net.minecraft.nbt.NbtCompound;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
-import net.minecraft.nbt.NbtList;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.util.WorldSavePath;
-
+import net.minecraft.world.level.storage.LevelResource;
 import java.io.File;
 import java.io.IOException;
 import java.util.HashMap;
@@ -17,35 +17,35 @@ public class ScoreboardDataReader {
         Map<String, Map<String, Integer>> result = new HashMap<>();
         
         try {
-            File scoreboardFile = server.getSavePath(WorldSavePath.ROOT)
-                    .resolve("data/scoreboard.dat").toFile();
+            File scoreboardFile = server.getWorldPath(LevelResource.ROOT)
+                    .resolve("data/minecraft/scoreboard.dat").toFile();
             
             if (!scoreboardFile.exists()) {
                 ServerScoreboardLogger.warn("scoreboard.dat not found");
                 return result;
             }
             
-            NbtCompound nbt = NbtIo.readCompressed(scoreboardFile);
+            CompoundTag nbt = NbtIo.readCompressed(scoreboardFile.toPath(), NbtAccounter.unlimitedHeap());
             if (!nbt.contains("data")) {
                 ServerScoreboardLogger.warn("No data section in scoreboard.dat");
                 return result;
             }
             
-            NbtCompound data = nbt.getCompound("data");
+            CompoundTag data = nbt.getCompoundOrEmpty("data");
             
             // PlayerScoresセクションからスコアデータを読み取り
             if (data.contains("PlayerScores")) {
-                NbtCompound playerScores = data.getCompound("PlayerScores");
+                CompoundTag playerScores = data.getCompoundOrEmpty("PlayerScores");
                 
-                for (String playerUuid : playerScores.getKeys()) {
-                    NbtCompound playerData = playerScores.getCompound(playerUuid);
+                for (String playerUuid : playerScores.keySet()) {
+                    CompoundTag playerData = playerScores.getCompoundOrEmpty(playerUuid);
                     
                     if (playerData.contains(objectiveName)) {
-                        NbtCompound objectiveData = playerData.getCompound(objectiveName);
+                        CompoundTag objectiveData = playerData.getCompoundOrEmpty(objectiveName);
                         
                         if (objectiveData.contains("Name") && objectiveData.contains("Score")) {
-                            String playerName = objectiveData.getString("Name");
-                            int score = objectiveData.getInt("Score");
+                            String playerName = objectiveData.getStringOr("Name", "");
+                            int score = objectiveData.getIntOr("Score", 0);
                             
                             Map<String, Integer> objectiveScores = result.computeIfAbsent(objectiveName, k -> new HashMap<>());
                             objectiveScores.put(playerName, score);
@@ -66,30 +66,30 @@ public class ScoreboardDataReader {
         Map<String, String> result = new HashMap<>();
         
         try {
-            File scoreboardFile = server.getSavePath(WorldSavePath.ROOT)
-                    .resolve("data/scoreboard.dat").toFile();
+            File scoreboardFile = server.getWorldPath(LevelResource.ROOT)
+                    .resolve("data/minecraft/scoreboard.dat").toFile();
             
             if (!scoreboardFile.exists()) {
                 return result;
             }
             
-            NbtCompound nbt = NbtIo.readCompressed(scoreboardFile);
+            CompoundTag nbt = NbtIo.readCompressed(scoreboardFile.toPath(), NbtAccounter.unlimitedHeap());
             if (!nbt.contains("data")) {
                 return result;
             }
             
-            NbtCompound data = nbt.getCompound("data");
+            CompoundTag data = nbt.getCompoundOrEmpty("data");
             
             // Objectivesセクションからオブジェクティブ情報を読み取り
             if (data.contains("Objectives")) {
-                NbtList objectives = data.getList("Objectives", 10); // 10 = Compound
+                ListTag objectives = data.getListOrEmpty("Objectives");
                 
                 for (int i = 0; i < objectives.size(); i++) {
-                    NbtCompound objective = objectives.getCompound(i);
+                    CompoundTag objective = objectives.getCompoundOrEmpty(i);
                     
                     if (objective.contains("Name") && objective.contains("DisplayName")) {
-                        String name = objective.getString("Name");
-                        String displayName = objective.getString("DisplayName");
+                        String name = objective.getStringOr("Name", "");
+                        String displayName = objective.getStringOr("DisplayName", "");
                         result.put(name, displayName);
                     }
                 }
@@ -106,33 +106,33 @@ public class ScoreboardDataReader {
         Map<String, Integer> result = new HashMap<>();
         
         try {
-            File scoreboardFile = server.getSavePath(WorldSavePath.ROOT)
-                    .resolve("data/scoreboard.dat").toFile();
+            File scoreboardFile = server.getWorldPath(LevelResource.ROOT)
+                    .resolve("data/minecraft/scoreboard.dat").toFile();
             
             if (!scoreboardFile.exists()) {
                 return result;
             }
             
-            NbtCompound nbt = NbtIo.readCompressed(scoreboardFile);
+            CompoundTag nbt = NbtIo.readCompressed(scoreboardFile.toPath(), NbtAccounter.unlimitedHeap());
             if (!nbt.contains("data")) {
                 return result;
             }
             
-            NbtCompound data = nbt.getCompound("data");
+            CompoundTag data = nbt.getCompoundOrEmpty("data");
             
             // PlayerScoresセクションからスコアデータを読み取り
             if (data.contains("PlayerScores")) {
-                NbtCompound playerScores = data.getCompound("PlayerScores");
+                CompoundTag playerScores = data.getCompoundOrEmpty("PlayerScores");
                 
-                for (String playerUuid : playerScores.getKeys()) {
-                    NbtCompound playerData = playerScores.getCompound(playerUuid);
+                for (String playerUuid : playerScores.keySet()) {
+                    CompoundTag playerData = playerScores.getCompoundOrEmpty(playerUuid);
                     
                     if (playerData.contains(objectiveName)) {
-                        NbtCompound objectiveData = playerData.getCompound(objectiveName);
+                        CompoundTag objectiveData = playerData.getCompoundOrEmpty(objectiveName);
                         
                         if (objectiveData.contains("Name") && objectiveData.contains("Score")) {
-                            String playerName = objectiveData.getString("Name");
-                            int score = objectiveData.getInt("Score");
+                            String playerName = objectiveData.getStringOr("Name", "");
+                            int score = objectiveData.getIntOr("Score", 0);
                             result.put(playerName, score);
                         }
                     }

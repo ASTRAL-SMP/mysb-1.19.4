@@ -1,10 +1,9 @@
 package com.astralsmp.mysb;
 
-import net.minecraft.server.network.ServerPlayerEntity;
-
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
+import net.minecraft.server.level.ServerPlayer;
 
 public final class FakePlayerDetector {
 
@@ -22,7 +21,7 @@ public final class FakePlayerDetector {
 
     private FakePlayerDetector() {}
 
-    public static boolean isFakePlayer(ServerPlayerEntity player) {
+    public static boolean isFakePlayer(ServerPlayer player) {
         if (player == null) {
             return false;
         }
@@ -46,7 +45,7 @@ public final class FakePlayerDetector {
         return matchesFakePlayerNamePattern(playerName);
     }
 
-    public static void registerIfFakePlayer(ServerPlayerEntity player) {
+    public static void registerIfFakePlayer(ServerPlayer player) {
         if (player == null) {
             return;
         }
@@ -79,7 +78,7 @@ public final class FakePlayerDetector {
         return FAKE_PLAYER_NAME_PATTERN.matcher(lower).matches();
     }
 
-    private static boolean matchesFakePlayerClass(ServerPlayerEntity player) {
+    private static boolean matchesFakePlayerClass(ServerPlayer player) {
         Class<?>[] classes = ensureFakePlayerClasses();
         if (classes.length == 0) {
             return false;

@@ -5,8 +5,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.util.WorldSavePath;
-
+import net.minecraft.world.level.storage.LevelResource;
 import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
@@ -27,7 +26,7 @@ public class ScoreboardAutoTransform {
     public static void loadConfig() {
         if (server == null) return;
         
-        Path configDir = server.getSavePath(WorldSavePath.ROOT).resolve("config/mysb");
+        Path configDir = server.getWorldPath(LevelResource.ROOT).resolve("config/mysb");
         configFile = configDir.resolve("auto_transform.json").toFile();
         
         try {

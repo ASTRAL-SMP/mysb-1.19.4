@@ -1,23 +1,23 @@
 package com.astralsmp.mysb;
 
-import net.minecraft.scoreboard.Scoreboard;
-import net.minecraft.scoreboard.ScoreboardCriterion;
-import net.minecraft.scoreboard.ScoreboardObjective;
-import net.minecraft.scoreboard.ScoreboardPlayerScore;
-import java.util.Collection;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.stat.Stat;
-import net.minecraft.stat.Stats;
-import net.minecraft.text.Text;
-import net.minecraft.registry.Registries;
-import net.minecraft.block.Block;
-import net.minecraft.block.Blocks;
-import net.minecraft.item.BlockItem;
-import net.minecraft.item.Item;
-import net.minecraft.item.Items;
-import net.minecraft.util.Identifier;
-
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.stats.Stat;
+import net.minecraft.stats.Stats;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.scores.Objective;
+import net.minecraft.world.scores.PlayerScoreEntry;
+import net.minecraft.world.scores.ScoreAccess;
+import net.minecraft.world.scores.ScoreHolder;
+import net.minecraft.world.scores.Scoreboard;
+import net.minecraft.world.scores.criteria.ObjectiveCriteria;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.concurrent.ConcurrentHashMap;
@@ -73,12 +73,12 @@ public class TotalStatsManager {
     private static void initializeRegistryCaches() {
         if (allBlocksCache == null) {
             allBlocksCache = new HashSet<>();
-            Registries.BLOCK.forEach(allBlocksCache::add);
+            BuiltInRegistries.BLOCK.forEach(allBlocksCache::add);
             ServerScoreboardLogger.info("Cached " + allBlocksCache.size() + " blocks for statistics");
         }
         if (blockItemsCache == null) {
             blockItemsCache = new HashSet<>();
-            Registries.ITEM.forEach(item -> {
+            BuiltInRegistries.ITEM.forEach(item -> {
                 if (item instanceof BlockItem) {
                     blockItemsCache.add(item);
                 }
@@ -131,11 +131,13 @@ public class TotalStatsManager {
         }
         
         // 新しいオブジェクティブを作成
-        ScoreboardObjective objective = scoreboard.addObjective(
+        Objective objective = scoreboard.addObjective(
             objectiveName,
-            ScoreboardCriterion.DUMMY,
-            Text.literal(config.displayName),
-            ScoreboardCriterion.RenderType.INTEGER
+            ObjectiveCriteria.DUMMY,
+            Component.literal(config.displayName),
+            ObjectiveCriteria.RenderType.INTEGER,
+            false,
+            null
         );
         
         ServerScoreboardLogger.info("Created total objective: " + objectiveName);
@@ -207,7 +209,7 @@ public class TotalStatsManager {
     private static void updateTotalStat(TotalStatConfig config) {
         Scoreboard scoreboard = server.getScoreboard();
         String objectiveName = TOTAL_PREFIX + config.id;
-        ScoreboardObjective objective = scoreboard.getObjective(objectiveName);
+        Objective objective = scoreboard.getObjective(objectiveName);
         
         if (objective == null) {
             createTotalObjective(config);
@@ -221,7 +223,7 @@ public class TotalStatsManager {
         boolean hasChanged = false;
         
         // オンラインプレイヤーの統計を更新・取得
-        for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             String playerName = player.getName().getString();
             // 除外リストに含まれているプレイヤーはスキップ
             if (excludedPlayers.contains(playerName)) {
@@ -275,24 +277,24 @@ public class TotalStatsManager {
         }
         
         // Clear old scores
-        Collection<ScoreboardPlayerScore> oldScores = scoreboard.getAllPlayerScores(objective);
-        for (ScoreboardPlayerScore oldScore : oldScores) {
-            scoreboard.resetPlayerScore(oldScore.getPlayerName(), objective);
+        Collection<PlayerScoreEntry> oldScores = scoreboard.listPlayerScores(objective);
+        for (PlayerScoreEntry oldScore : oldScores) {
+            scoreboard.resetSinglePlayerScore(ScoreHolder.forNameOnly(oldScore.owner()), objective);
         }
         
         {
             // 通常の統計表示
-            ScoreboardPlayerScore totalScore = scoreboard.getPlayerScore("  §6§l$SERVER_TOTAL", objective);
-            int oldTotal = totalScore.getScore();
-            totalScore.setScore(total);
+            ScoreAccess totalScore = scoreboard.getOrCreatePlayerScore(ScoreHolder.forNameOnly("  §6§l$SERVER_TOTAL"), objective);
+            int oldTotal = totalScore.get();
+            totalScore.set(total);
             
             // デバッグログ: 合計スコアの変更
             
             for (Map.Entry<String, Integer> entry : playerStats.entrySet()) {
                 if (entry.getValue() > 0) { // 0の値は表示しない
-                    ScoreboardPlayerScore score = scoreboard.getPlayerScore(entry.getKey(), objective);
-                    int oldValue = score.getScore();
-                    score.setScore(entry.getValue());
+                    ScoreAccess score = scoreboard.getOrCreatePlayerScore(ScoreHolder.forNameOnly(entry.getKey()), objective);
+                    int oldValue = score.get();
+                    score.set(entry.getValue());
                     
                 }
             }
@@ -306,7 +308,7 @@ public class TotalStatsManager {
     
     
     
-    public static int getPlayerStatTotal(ServerPlayerEntity player, String statType) {
+    public static int getPlayerStatTotal(ServerPlayer player, String statType) {
         int total = 0;
 
         // キャッシュが未初期化の場合は初期化
@@ -320,8 +322,8 @@ public class TotalStatsManager {
                 // 全ブロックの採掘数を合計（キャッシュを使用）
                 try {
                     for (Block block : allBlocksCache) {
-                        Stat<Block> stat = Stats.MINED.getOrCreateStat(block);
-                        total += player.getStatHandler().getStat(stat);
+                        Stat<Block> stat = Stats.BLOCK_MINED.get(block);
+                        total += player.getStats().getValue(stat);
                     }
                 } catch (Exception e) {
                     // エラーを無視
@@ -332,8 +334,8 @@ public class TotalStatsManager {
                 // 全アイテムの使用数を合計（キャッシュを使用）
                 try {
                     for (Item item : blockItemsCache) {
-                        Stat<Item> stat = Stats.USED.getOrCreateStat(item);
-                        total += player.getStatHandler().getStat(stat);
+                        Stat<Item> stat = Stats.ITEM_USED.get(item);
+                        total += player.getStats().getValue(stat);
                     }
                 } catch (Exception e) {
                     // エラーを無視
@@ -350,9 +352,9 @@ public class TotalStatsManager {
                 };
                 try {
                     for (String oreName : allOres) {
-                        Block block = Registries.BLOCK.get(new Identifier("minecraft", oreName));
+                        Block block = BuiltInRegistries.BLOCK.getValue(Identifier.withDefaultNamespace(oreName));
                         if (block != null && block != Blocks.AIR) {
-                            total += player.getStatHandler().getStat(Stats.MINED.getOrCreateStat(block));
+                            total += player.getStats().getValue(Stats.BLOCK_MINED.get(block));
                         }
                     }
                 } catch (Exception e) {
@@ -362,9 +364,9 @@ public class TotalStatsManager {
             case "deepslate_mined":
                 // Deepslate blocks mined (the stone itself, not the ores)
                 try {
-                    Block deepslateBlock = Registries.BLOCK.get(new Identifier("minecraft", "deepslate"));
+                    Block deepslateBlock = BuiltInRegistries.BLOCK.getValue(Identifier.withDefaultNamespace("deepslate"));
                     if (deepslateBlock != null && deepslateBlock != Blocks.AIR) {
-                        total = player.getStatHandler().getStat(Stats.MINED.getOrCreateStat(deepslateBlock));
+                        total = player.getStats().getValue(Stats.BLOCK_MINED.get(deepslateBlock));
                     }
                 } catch (Exception e) {
                     // エラーを無視
@@ -380,9 +382,9 @@ public class TotalStatsManager {
                 };
                 try {
                     for (String blockName : coralBlocksForMining) {
-                        Block block = Registries.BLOCK.get(new Identifier("minecraft", blockName));
+                        Block block = BuiltInRegistries.BLOCK.getValue(Identifier.withDefaultNamespace(blockName));
                         if (block != null && block != Blocks.AIR) {
-                            total += player.getStatHandler().getStat(Stats.MINED.getOrCreateStat(block));
+                            total += player.getStats().getValue(Stats.BLOCK_MINED.get(block));
                         }
                     }
                 } catch (Exception e) {
@@ -400,9 +402,9 @@ public class TotalStatsManager {
                 };
                 try {
                     for (String blockName : glassBlocks) {
-                        Item item = Registries.ITEM.get(new Identifier("minecraft", blockName));
+                        Item item = BuiltInRegistries.ITEM.getValue(Identifier.withDefaultNamespace(blockName));
                         if (item != null && item != Items.AIR && item instanceof BlockItem) {
-                            total += player.getStatHandler().getStat(Stats.USED.getOrCreateStat(item));
+                            total += player.getStats().getValue(Stats.ITEM_USED.get(item));
                         }
                     }
                 } catch (Exception e) {
@@ -413,21 +415,21 @@ public class TotalStatsManager {
                 // Carved pumpkins placed
                 try {
                     var carvedPumpkin = Items.CARVED_PUMPKIN;
-                    total = player.getStatHandler().getStat(Stats.USED.getOrCreateStat(carvedPumpkin));
+                    total = player.getStats().getValue(Stats.ITEM_USED.get(carvedPumpkin));
                 } catch (Exception e) {
                     // ignore lookup errors
                 }
                 break;
             case "placed_anvil":
                 try {
-                    var anvil = Registries.ITEM.get(new net.minecraft.util.Identifier("minecraft", "anvil"));
+                    var anvil = BuiltInRegistries.ITEM.getValue(Identifier.withDefaultNamespace("anvil"));
                     if (anvil != null) {
-                        total = player.getStatHandler().getStat(Stats.USED.getOrCreateStat(anvil));
+                        total = player.getStats().getValue(Stats.ITEM_USED.get(anvil));
                     }
                 } catch (Exception e) {}
                 break;
             case "traded_with_villager":
-                total = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.TRADED_WITH_VILLAGER));
+                total = player.getStats().getValue(Stats.CUSTOM.get(Stats.TRADED_WITH_VILLAGER));
                 break;
         }
         
@@ -538,7 +540,7 @@ public class TotalStatsManager {
         // Remove the objective from scoreboard
         Scoreboard scoreboard = server.getScoreboard();
         String objectiveName = TOTAL_PREFIX + statId;
-        ScoreboardObjective objective = scoreboard.getObjective(objectiveName);
+        Objective objective = scoreboard.getObjective(objectiveName);
         if (objective != null) {
             scoreboard.removeObjective(objective);
         }
@@ -587,7 +589,7 @@ public class TotalStatsManager {
         return FakePlayerDetector.isFakePlayerName(playerName);
     }
 
-    public static boolean isFakePlayer(ServerPlayerEntity player) {
+    public static boolean isFakePlayer(ServerPlayer player) {
         return FakePlayerDetector.isFakePlayer(player);
     }
 }

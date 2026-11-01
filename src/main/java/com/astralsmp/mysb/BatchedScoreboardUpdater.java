@@ -1,10 +1,10 @@
 package com.astralsmp.mysb;
 
-import net.minecraft.network.packet.s2c.play.ScoreboardPlayerUpdateS2CPacket;
-import net.minecraft.scoreboard.ServerScoreboard;
-import net.minecraft.server.network.ServerPlayerEntity;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import net.minecraft.network.protocol.game.ClientboundResetScorePacket;
+import net.minecraft.network.protocol.game.ClientboundSetScorePacket;
+import net.minecraft.server.level.ServerPlayer;
 
 public class BatchedScoreboardUpdater {
     // Map<UUID, Map<"objectiveName:playerName", PendingUpdate>> - O(1)ルックアップ
@@ -34,8 +34,8 @@ public class BatchedScoreboardUpdater {
     }
 
     // スコア更新をバッチに追加
-    public static void addToBatch(ServerPlayerEntity player, String objectiveName, String playerName, int score, boolean isRemoval) {
-        UUID playerId = player.getUuid();
+    public static void addToBatch(ServerPlayer player, String objectiveName, String playerName, int score, boolean isRemoval) {
+        UUID playerId = player.getUUID();
         Map<String, PendingUpdate> updates = pendingUpdatesMap.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>());
 
         PendingUpdate newUpdate = new PendingUpdate(objectiveName, playerName, score, isRemoval);
@@ -53,11 +53,11 @@ public class BatchedScoreboardUpdater {
     }
     
     // バッチを強制的にフラッシュ
-    public static void flushBatch(ServerPlayerEntity player, Map<String, PendingUpdate> updates) {
+    public static void flushBatch(ServerPlayer player, Map<String, PendingUpdate> updates) {
         if (updates.isEmpty()) return;
 
         // レート制限チェック
-        if (!RateLimiter.canSendScoreboardPacket(player.getUuid())) {
+        if (!RateLimiter.canSendScoreboardPacket(player.getUUID())) {
             ServerScoreboardLogger.warn("Cannot flush batch due to rate limit for player " + player.getName().getString());
             return;
         }
@@ -67,13 +67,21 @@ public class BatchedScoreboardUpdater {
 
         for (Map.Entry<String, PendingUpdate> entry : updates.entrySet()) {
             PendingUpdate update = entry.getValue();
-            if (RateLimiter.canSendPacket(player.getUuid())) {
-                player.networkHandler.sendPacket(new ScoreboardPlayerUpdateS2CPacket(
-                    update.isRemoval ? ServerScoreboard.UpdateMode.REMOVE : ServerScoreboard.UpdateMode.CHANGE,
-                    update.objectiveName,
-                    update.playerName,
-                    update.score
-                ));
+            if (RateLimiter.canSendPacket(player.getUUID())) {
+                if (update.isRemoval) {
+                    player.connection.send(new ClientboundResetScorePacket(
+                        update.playerName,
+                        update.objectiveName
+                    ));
+                } else {
+                    player.connection.send(new ClientboundSetScorePacket(
+                        update.playerName,
+                        update.objectiveName,
+                        update.score,
+                        Optional.empty(),
+                        Optional.empty()
+                    ));
+                }
                 keysToRemove.add(entry.getKey());
                 sentCount++;
             } else {
@@ -113,7 +121,7 @@ public class BatchedScoreboardUpdater {
             Map<String, PendingUpdate> updates = entry.getValue();
 
             // プレイヤーがオンラインかチェック
-            ServerPlayerEntity player = ServerScoreboardManager.server.getPlayerManager().getPlayer(playerId);
+            ServerPlayer player = ServerScoreboardManager.server.getPlayerList().getPlayer(playerId);
             if (player != null && shouldFlushBatch(updates)) {
                 flushBatch(player, updates);
             }

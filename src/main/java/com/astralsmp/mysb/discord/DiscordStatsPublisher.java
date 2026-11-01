@@ -4,8 +4,7 @@ import com.astralsmp.mysb.PlayerStatsCache;
 import com.astralsmp.mysb.ServerScoreboardLogger;
 import com.astralsmp.mysb.TotalStatsManager;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.network.ServerPlayerEntity;
-
+import net.minecraft.server.level.ServerPlayer;
 import java.text.NumberFormat;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -233,7 +232,7 @@ public class DiscordStatsPublisher {
         }
 
         // オンラインプレイヤーの統計を取得
-        for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             String playerName = player.getName().getString();
             if (TotalStatsManager.isPlayerExcluded(playerName)) {
                 continue;

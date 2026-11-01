@@ -1,21 +1,20 @@
 package com.astralsmp.mysb;
 
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.entity.player.PlayerInventory;
-import net.minecraft.inventory.Inventory;
-import net.minecraft.inventory.SimpleInventory;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.screen.GenericContainerScreenHandler;
-import net.minecraft.screen.ScreenHandler;
-import net.minecraft.screen.ScreenHandlerType;
-import net.minecraft.screen.slot.Slot;
-import net.minecraft.screen.slot.SlotActionType;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
-
 import java.util.List;
+import net.minecraft.ChatFormatting;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.Container;
+import net.minecraft.world.SimpleContainer;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.inventory.ChestMenu;
+import net.minecraft.world.inventory.ContainerInput;
+import net.minecraft.world.inventory.MenuType;
+import net.minecraft.world.inventory.Slot;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import java.util.ArrayList;
 
 public class ServerScoreboardGUIv2 implements GUIConstants {
@@ -25,8 +24,8 @@ public class ServerScoreboardGUIv2 implements GUIConstants {
         SCOREBOARD
     }
     
-    public static void openFor(ServerPlayerEntity player, GUIPage page) {
-        SimpleInventory inventory = new SimpleInventory(GUI_SIZE);
+    public static void openFor(ServerPlayer player, GUIPage page) {
+        SimpleContainer inventory = new SimpleContainer(GUI_SIZE);
         
         switch (page) {
             case STATISTICS:
@@ -37,29 +36,29 @@ public class ServerScoreboardGUIv2 implements GUIConstants {
                 break;
         }
         
-        player.openHandledScreen(new net.minecraft.screen.SimpleNamedScreenHandlerFactory(
+        player.openMenu(new net.minecraft.world.SimpleMenuProvider(
                 (syncId, playerInventory, playerEntity) -> new ServerScoreboardScreenHandler(syncId, playerInventory, inventory, player, page),
-                Text.literal(page == GUIPage.STATISTICS ? "統計選択" : "スコアボード選択")
+                Component.literal(page == GUIPage.STATISTICS ? "統計選択" : "スコアボード選択")
         ));
     }
     
-    private static void setupStatisticsGUI(SimpleInventory inventory, ServerPlayerEntity player, int page) {
-        inventory.clear();
+    private static void setupStatisticsGUI(SimpleContainer inventory, ServerPlayer player, int page) {
+        inventory.clearContent();
         
         // Slot SLOT_SWITCH: Scoreboard button (compass icon)
         ItemStack scoreboardButton = new ItemStack(Items.COMPASS);
-        scoreboardButton.setCustomName(Text.literal("スコアボードを表示").formatted(Formatting.AQUA));
-        inventory.setStack(SLOT_SWITCH, scoreboardButton);
+        scoreboardButton.set(DataComponents.CUSTOM_NAME, Component.literal("スコアボードを表示").withStyle(ChatFormatting.AQUA));
+        inventory.setItem(SLOT_SWITCH, scoreboardButton);
 
         // Slot SLOT_RESET: Reset button
         ItemStack resetButton = new ItemStack(Items.BARRIER);
-        resetButton.setCustomName(Text.literal("デフォルトにリセット").formatted(Formatting.YELLOW));
-        inventory.setStack(SLOT_RESET, resetButton);
+        resetButton.set(DataComponents.CUSTOM_NAME, Component.literal("デフォルトにリセット").withStyle(ChatFormatting.YELLOW));
+        inventory.setItem(SLOT_RESET, resetButton);
 
         // Slot SLOT_CLOSE: Close button
         ItemStack closeButton = new ItemStack(Items.REDSTONE);
-        closeButton.setCustomName(Text.literal("閉じる").formatted(Formatting.RED));
-        inventory.setStack(SLOT_CLOSE, closeButton);
+        closeButton.set(DataComponents.CUSTOM_NAME, Component.literal("閉じる").withStyle(ChatFormatting.RED));
+        inventory.setItem(SLOT_CLOSE, closeButton);
         
         // Get only enabled total stats
         List<String> totalStats = new ArrayList<>();
@@ -74,14 +73,14 @@ public class ServerScoreboardGUIv2 implements GUIConstants {
         // Navigation
         if (page > 0) {
             ItemStack prevButton = new ItemStack(Items.ARROW);
-            prevButton.setCustomName(Text.literal("前のページ").formatted(Formatting.AQUA));
-            inventory.setStack(SLOT_PREV, prevButton);
+            prevButton.set(DataComponents.CUSTOM_NAME, Component.literal("前のページ").withStyle(ChatFormatting.AQUA));
+            inventory.setItem(SLOT_PREV, prevButton);
         }
 
         if ((page + 1) * ITEMS_PER_PAGE < totalStats.size()) {
             ItemStack nextButton = new ItemStack(Items.ARROW);
-            nextButton.setCustomName(Text.literal("次のページ").formatted(Formatting.AQUA));
-            inventory.setStack(SLOT_NEXT, nextButton);
+            nextButton.set(DataComponents.CUSTOM_NAME, Component.literal("次のページ").withStyle(ChatFormatting.AQUA));
+            inventory.setItem(SLOT_NEXT, nextButton);
         }
 
         // Display statistics
@@ -92,35 +91,35 @@ public class ServerScoreboardGUIv2 implements GUIConstants {
             String statObjective = totalStats.get(i);
             ItemStack statItem = new ItemStack(Items.GOLDEN_APPLE);
             String displayName = TotalStatsManager.getTotalDisplayName(statObjective);
-            statItem.setCustomName(Text.literal(displayName).formatted(Formatting.GOLD, Formatting.BOLD));
-            inventory.setStack(SLOT_ITEMS_START + (i - startIndex), statItem);
+            statItem.set(DataComponents.CUSTOM_NAME, Component.literal(displayName).withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD));
+            inventory.setItem(SLOT_ITEMS_START + (i - startIndex), statItem);
         }
 
         // Fill empty slots
         for (int i = SLOT_ITEMS_START + (endIndex - startIndex); i < GUI_SIZE; i++) {
             ItemStack glassPane = new ItemStack(Items.GRAY_STAINED_GLASS_PANE);
-            glassPane.setCustomName(Text.literal(" "));
-            inventory.setStack(i, glassPane);
+            glassPane.set(DataComponents.CUSTOM_NAME, Component.literal(" "));
+            inventory.setItem(i, glassPane);
         }
     }
     
-    private static void setupScoreboardGUI(SimpleInventory inventory, ServerPlayerEntity player, int page) {
-        inventory.clear();
+    private static void setupScoreboardGUI(SimpleContainer inventory, ServerPlayer player, int page) {
+        inventory.clearContent();
         
         // Slot SLOT_SWITCH: Statistics button (book icon)
         ItemStack statsButton = new ItemStack(Items.BOOK);
-        statsButton.setCustomName(Text.literal("統計を表示").formatted(Formatting.AQUA));
-        inventory.setStack(SLOT_SWITCH, statsButton);
+        statsButton.set(DataComponents.CUSTOM_NAME, Component.literal("統計を表示").withStyle(ChatFormatting.AQUA));
+        inventory.setItem(SLOT_SWITCH, statsButton);
 
         // Slot SLOT_RESET: Reset button
         ItemStack resetButton = new ItemStack(Items.BARRIER);
-        resetButton.setCustomName(Text.literal("デフォルトにリセット").formatted(Formatting.YELLOW));
-        inventory.setStack(SLOT_RESET, resetButton);
+        resetButton.set(DataComponents.CUSTOM_NAME, Component.literal("デフォルトにリセット").withStyle(ChatFormatting.YELLOW));
+        inventory.setItem(SLOT_RESET, resetButton);
 
         // Slot SLOT_CLOSE: Close button
         ItemStack closeButton = new ItemStack(Items.REDSTONE);
-        closeButton.setCustomName(Text.literal("閉じる").formatted(Formatting.RED));
-        inventory.setStack(SLOT_CLOSE, closeButton);
+        closeButton.set(DataComponents.CUSTOM_NAME, Component.literal("閉じる").withStyle(ChatFormatting.RED));
+        inventory.setItem(SLOT_CLOSE, closeButton);
         
         // Get objectives list (excluding total stats)
         List<String> objectives = getObjectivesList(player, false);
@@ -128,14 +127,14 @@ public class ServerScoreboardGUIv2 implements GUIConstants {
         // Navigation
         if (page > 0) {
             ItemStack prevButton = new ItemStack(Items.ARROW);
-            prevButton.setCustomName(Text.literal("前のページ").formatted(Formatting.AQUA));
-            inventory.setStack(SLOT_PREV, prevButton);
+            prevButton.set(DataComponents.CUSTOM_NAME, Component.literal("前のページ").withStyle(ChatFormatting.AQUA));
+            inventory.setItem(SLOT_PREV, prevButton);
         }
 
         if ((page + 1) * ITEMS_PER_PAGE < objectives.size()) {
             ItemStack nextButton = new ItemStack(Items.ARROW);
-            nextButton.setCustomName(Text.literal("次のページ").formatted(Formatting.AQUA));
-            inventory.setStack(SLOT_NEXT, nextButton);
+            nextButton.set(DataComponents.CUSTOM_NAME, Component.literal("次のページ").withStyle(ChatFormatting.AQUA));
+            inventory.setItem(SLOT_NEXT, nextButton);
         }
 
         // Display objectives
@@ -145,22 +144,22 @@ public class ServerScoreboardGUIv2 implements GUIConstants {
         for (int i = startIndex; i < endIndex; i++) {
             String objective = objectives.get(i);
             ItemStack objectiveItem = new ItemStack(Items.PAPER);
-            objectiveItem.setCustomName(Text.literal(objective).formatted(Formatting.WHITE));
-            inventory.setStack(SLOT_ITEMS_START + (i - startIndex), objectiveItem);
+            objectiveItem.set(DataComponents.CUSTOM_NAME, Component.literal(objective).withStyle(ChatFormatting.WHITE));
+            inventory.setItem(SLOT_ITEMS_START + (i - startIndex), objectiveItem);
         }
 
         // Fill empty slots
         for (int i = SLOT_ITEMS_START + (endIndex - startIndex); i < GUI_SIZE; i++) {
             ItemStack glassPane = new ItemStack(Items.GRAY_STAINED_GLASS_PANE);
-            glassPane.setCustomName(Text.literal(" "));
-            inventory.setStack(i, glassPane);
+            glassPane.set(DataComponents.CUSTOM_NAME, Component.literal(" "));
+            inventory.setItem(i, glassPane);
         }
     }
     
-    private static List<String> getObjectivesList(ServerPlayerEntity player, boolean includeTotalStats) {
+    private static List<String> getObjectivesList(ServerPlayer player, boolean includeTotalStats) {
         List<String> list = new ArrayList<>();
         
-        player.getServer().getScoreboard().getObjectives().forEach(objective -> {
+        player.level().getServer().getScoreboard().getObjectives().forEach(objective -> {
             String name = objective.getName();
             if (includeTotalStats || !TotalStatsManager.isTotalObjective(name)) {
                 list.add(name);
@@ -170,36 +169,36 @@ public class ServerScoreboardGUIv2 implements GUIConstants {
         return list;
     }
     
-    public static class ServerScoreboardScreenHandler extends GenericContainerScreenHandler implements GUIConstants {
-        private final ServerPlayerEntity player;
-        private final SimpleInventory inventory;
+    public static class ServerScoreboardScreenHandler extends ChestMenu implements GUIConstants {
+        private final ServerPlayer player;
+        private final SimpleContainer inventory;
         private final GUIPage currentPage;
         private int pageNumber = 0;
         
-        public ServerScoreboardScreenHandler(int syncId, PlayerInventory playerInventory, Inventory inventory, ServerPlayerEntity player, GUIPage currentPage) {
-            super(ScreenHandlerType.GENERIC_9X6, syncId, playerInventory, inventory, 6);
+        public ServerScoreboardScreenHandler(int syncId, Inventory playerInventory, Container inventory, ServerPlayer player, GUIPage currentPage) {
+            super(MenuType.GENERIC_9x6, syncId, playerInventory, inventory, 6);
             this.player = player;
-            this.inventory = (SimpleInventory) inventory;
+            this.inventory = (SimpleContainer) inventory;
             this.currentPage = currentPage;
         }
         
         @Override
-        public boolean canUse(PlayerEntity player) {
+        public boolean stillValid(Player player) {
             return true;
         }
         
         @Override
-        public ItemStack quickMove(PlayerEntity player, int slot) {
+        public ItemStack quickMoveStack(Player player, int slot) {
             return ItemStack.EMPTY;
         }
         
         @Override
-        public boolean canInsertIntoSlot(ItemStack stack, Slot slot) {
+        public boolean canTakeItemForPickAll(ItemStack stack, Slot slot) {
             return false;
         }
         
         @Override
-        public void onSlotClick(int slotIndex, int button, SlotActionType actionType, PlayerEntity clickingPlayer) {
+        public void clicked(int slotIndex, int button, ContainerInput actionType, Player clickingPlayer) {
             if (slotIndex < 0 || slotIndex >= this.slots.size()) {
                 return;
             }
@@ -214,10 +213,10 @@ public class ServerScoreboardGUIv2 implements GUIConstants {
                 case SLOT_SWITCH:
                     // Switch between statistics and scoreboard
                     if (currentPage == GUIPage.STATISTICS) {
-                        player.closeHandledScreen();
+                        player.closeContainer();
                         ServerScoreboardGUIv2.openFor(player, GUIPage.SCOREBOARD);
                     } else {
-                        player.closeHandledScreen();
+                        player.closeContainer();
                         ServerScoreboardGUIv2.openFor(player, GUIPage.STATISTICS);
                     }
                     break;
@@ -229,7 +228,7 @@ public class ServerScoreboardGUIv2 implements GUIConstants {
 
                 case SLOT_CLOSE:
                     // Close button
-                    player.closeHandledScreen();
+                    player.closeContainer();
                     break;
 
                 case SLOT_PREV:
@@ -292,23 +291,23 @@ public class ServerScoreboardGUIv2 implements GUIConstants {
         
         private void selectObjective(String objective) {
             try {
-                ServerScoreboardManager.setClientDisplayObjective(player.getUuid(), objective);
-                player.sendMessage(Text.literal("スコアボードを " + objective + " に設定しました").formatted(Formatting.GREEN));
-                player.closeHandledScreen();
+                ServerScoreboardManager.setClientDisplayObjective(player.getUUID(), objective);
+                player.sendSystemMessage(Component.literal("スコアボードを " + objective + " に設定しました").withStyle(ChatFormatting.GREEN));
+                player.closeContainer();
             } catch (Exception e) {
                 ServerScoreboardLogger.error("Failed to select objective: " + objective, e);
-                player.sendMessage(Text.literal("スコアボードの設定に失敗しました").formatted(Formatting.RED));
+                player.sendSystemMessage(Component.literal("スコアボードの設定に失敗しました").withStyle(ChatFormatting.RED));
             }
         }
         
         private void resetToDefault() {
             try {
-                ServerScoreboardManager.resetPlayerScoreboard(player.getUuid());
-                player.sendMessage(Text.literal("スコアボードをデフォルトにリセットしました").formatted(Formatting.GREEN));
-                player.closeHandledScreen();
+                ServerScoreboardManager.resetPlayerScoreboard(player.getUUID());
+                player.sendSystemMessage(Component.literal("スコアボードをデフォルトにリセットしました").withStyle(ChatFormatting.GREEN));
+                player.closeContainer();
             } catch (Exception e) {
                 ServerScoreboardLogger.error("Failed to reset scoreboard", e);
-                player.sendMessage(Text.literal("リセットに失敗しました").formatted(Formatting.RED));
+                player.sendSystemMessage(Component.literal("リセットに失敗しました").withStyle(ChatFormatting.RED));
             }
         }
         

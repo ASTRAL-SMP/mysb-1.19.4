@@ -1,8 +1,8 @@
 package com.astralsmp.mysb;
 
-import net.minecraft.nbt.NbtCompound;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import net.minecraft.nbt.CompoundTag;
 
 public class CustomScoreboardData {
     private final UUID playerId;
@@ -60,8 +60,8 @@ public class CustomScoreboardData {
         return playerId;
     }
     
-    public NbtCompound toNbt() {
-        NbtCompound nbt = new NbtCompound();
+    public CompoundTag toNbt() {
+        CompoundTag nbt = new CompoundTag();
         nbt.putBoolean("enabled", enabled);
         
         if (customObjectiveName != null) {
@@ -72,7 +72,7 @@ public class CustomScoreboardData {
         }
         
         // カスタムスコアを保存
-        NbtCompound scoresNbt = new NbtCompound();
+        CompoundTag scoresNbt = new CompoundTag();
         for (Map.Entry<String, Integer> entry : customScores.entrySet()) {
             scoresNbt.putInt(entry.getKey(), entry.getValue());
         }
@@ -81,22 +81,22 @@ public class CustomScoreboardData {
         return nbt;
     }
     
-    public void fromNbt(NbtCompound nbt) {
-        this.enabled = nbt.getBoolean("enabled");
+    public void fromNbt(CompoundTag nbt) {
+        this.enabled = nbt.getBooleanOr("enabled", false);
         
         if (nbt.contains("customObjectiveName")) {
-            this.customObjectiveName = nbt.getString("customObjectiveName");
+            this.customObjectiveName = nbt.getStringOr("customObjectiveName", "");
         }
         if (nbt.contains("customDisplayName")) {
-            this.customDisplayName = nbt.getString("customDisplayName");
+            this.customDisplayName = nbt.getStringOr("customDisplayName", "");
         }
         
         // カスタムスコアを読み込み
         customScores.clear();
         if (nbt.contains("customScores")) {
-            NbtCompound scoresNbt = nbt.getCompound("customScores");
-            for (String key : scoresNbt.getKeys()) {
-                customScores.put(key, scoresNbt.getInt(key));
+            CompoundTag scoresNbt = nbt.getCompoundOrEmpty("customScores");
+            for (String key : scoresNbt.keySet()) {
+                customScores.put(key, scoresNbt.getIntOr(key, 0));
             }
         }
     }

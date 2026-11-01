@@ -1,21 +1,25 @@
 package com.astralsmp.mysb;
 
-import net.minecraft.network.packet.s2c.play.ScoreboardDisplayS2CPacket;
-import net.minecraft.network.packet.s2c.play.ScoreboardObjectiveUpdateS2CPacket;
-import net.minecraft.network.packet.s2c.play.ScoreboardPlayerUpdateS2CPacket;
-import net.minecraft.scoreboard.ScoreboardCriterion;
-import net.minecraft.scoreboard.ScoreboardObjective;
-import net.minecraft.scoreboard.ServerScoreboard;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.numbers.NumberFormat;
+import net.minecraft.network.protocol.game.ClientboundResetScorePacket;
+import net.minecraft.network.protocol.game.ClientboundSetDisplayObjectivePacket;
+import net.minecraft.network.protocol.game.ClientboundSetObjectivePacket;
+import net.minecraft.network.protocol.game.ClientboundSetScorePacket;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.text.Text;
-
+import net.minecraft.server.ServerScoreboard;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.scores.DisplaySlot;
+import net.minecraft.world.scores.Objective;
+import net.minecraft.world.scores.PlayerScoreEntry;
+import net.minecraft.world.scores.ScoreHolder;
+import net.minecraft.world.scores.criteria.ObjectiveCriteria;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class CustomScoreboardPacketSender {
-    // プレイヤー毎の変換済みスコアボードキャッシュ: プレイヤーUUID -> オブジェクティブ名 -> プレイヤー名 -> スコア値
-    private static final Map<String, Map<String, Map<String, Integer>>> transformedScoreCache = new ConcurrentHashMap<>();
+    // プレイヤー毎の変換済みスコアボードキャッシュ: プレイヤーUUID -> オブジェクティブ名 -> プレイヤー名 -> 直近送信した変換済みエントリ
+    private static final Map<String, Map<String, Map<String, PlayerScoreEntry>>> transformedScoreCache = new ConcurrentHashMap<>();
 
     // Fake Player除外フィルタ（FAKE_PLAYER_SCORE_ENABLED が false の場合のみ除外）
     private static Map<String, Integer> filterFakePlayers(Map<String, Integer> source) {
@@ -32,13 +36,16 @@ public class CustomScoreboardPacketSender {
     }
     
     // バニラのスコアボードを変換して送信する（サーバー側データを変更しない）
-    public static void sendTransformedScoreboard(ServerPlayerEntity player, String originalObjectiveName, ScoreboardTransformData transformData) {
-        MinecraftServer server = player.getServer();
+    public static void sendTransformedScoreboard(ServerPlayer player, String originalObjectiveName, ScoreboardTransformData transformData) {
+        MinecraftServer server = player.level().getServer();
         if (server == null) return;
         
         ServerScoreboard serverScoreboard = server.getScoreboard();
-        ScoreboardObjective originalObjective = serverScoreboard.getObjective(originalObjectiveName);
+        Objective originalObjective = serverScoreboard.getObjective(originalObjectiveName);
         if (originalObjective == null) return;
+        Map<String, PlayerScoreEntry> originalEntries = new HashMap<>();
+        serverScoreboard.listPlayerScores(originalObjective)
+            .forEach(entry -> originalEntries.put(entry.owner(), entry));
         
         // 変換された表示名を取得
         String transformedDisplayName = transformData.getTransformedDisplayName(originalObjectiveName);
@@ -47,21 +54,22 @@ public class CustomScoreboardPacketSender {
         }
         
         // プレイヤー専用の仮想オブジェクティブ名
-        String virtualObjectiveName = "mysb_virtual_" + player.getUuidAsString().substring(0, 8);
+        String virtualObjectiveName = "mysb_virtual_" + player.getStringUUID().substring(0, 8);
         
         // 仮想オブジェクティブをクライアントにのみ作成（サーバー側スコアボードには追加しない）
-        ScoreboardObjective virtualObjective = new VirtualObjective(
+        Objective virtualObjective = new VirtualObjective(
             virtualObjectiveName,
-            originalObjective.getCriterion(),
-            Text.literal(transformedDisplayName),
-            originalObjective.getRenderType()
+            originalObjective.getCriteria(),
+            Component.literal(transformedDisplayName),
+            originalObjective.getRenderType(),
+            originalObjective.numberFormat()
         );
         
         // プレイヤーにオブジェクティブを送信
-        player.networkHandler.sendPacket(new ScoreboardObjectiveUpdateS2CPacket(virtualObjective, 0));
+        player.connection.send(new ClientboundSetObjectivePacket(virtualObjective, 0));
         
         // サイドバーに表示
-        player.networkHandler.sendPacket(new ScoreboardDisplayS2CPacket(1, virtualObjective));
+        player.connection.send(new ClientboundSetDisplayObjectivePacket(DisplaySlot.SIDEBAR, virtualObjective));
         
         // scoreboard.datから直接スコアデータを読み込んで変換
         Map<String, Integer> scoreData = ScoreboardDataReader.getAllPlayersScoresForObjective(server, originalObjectiveName);
@@ -72,48 +80,48 @@ public class CustomScoreboardPacketSender {
         if (scoreData.isEmpty()) {
             // scoreboard.datにデータがない場合、サーバーメモリからデータを取得
             ServerScoreboard scoreboard = server.getScoreboard();
-            ScoreboardObjective objective = scoreboard.getObjective(originalObjectiveName);
+            Objective objective = scoreboard.getObjective(originalObjectiveName);
             if (objective != null) {
                 Map<String, Integer> memoryScoreData = new HashMap<>();
                 boolean filterFakePlayers = !ServerScoreboardConfig.FAKE_PLAYER_SCORE_ENABLED;
-                server.getPlayerManager().getPlayerList().forEach(serverPlayer -> {
+                server.getPlayerList().getPlayers().forEach(serverPlayer -> {
                     if (filterFakePlayers && FakePlayerDetector.isFakePlayer(serverPlayer)) {
                         return;
                     }
                     String playerName = serverPlayer.getName().getString();
-                    try {
-                        int originalScore = serverScoreboard.getPlayerScore(playerName, objective).getScore();
-                        memoryScoreData.put(playerName, originalScore);
-                    } catch (Exception e) {
-                        // プレイヤーがスコアを持っていない場合はスキップ
+                    PlayerScoreEntry originalEntry = originalEntries.get(playerName);
+                    // プレイヤーがスコアを持っていない場合はスキップ
+                    if (originalEntry != null) {
+                        memoryScoreData.put(playerName, originalEntry.value());
                     }
                 });
                 // 差分変換スコアボード送信
-                sendDifferentialTransformedScores(player, virtualObjectiveName, originalObjectiveName, memoryScoreData, transformData);
+                sendDifferentialTransformedScores(player, virtualObjectiveName, originalObjectiveName, memoryScoreData, originalEntries, transformData);
             }
         } else {
             // 差分変換スコアボード送信
-            sendDifferentialTransformedScores(player, virtualObjectiveName, originalObjectiveName, scoreData, transformData);
+            sendDifferentialTransformedScores(player, virtualObjectiveName, originalObjectiveName, scoreData, originalEntries, transformData);
         }
         
         ServerScoreboardLogger.info("Sent virtual transformed scoreboard " + originalObjectiveName + " to player " + player.getName().getString());
     }
     
     // 差分変換スコアボード送信（パケット数削減）
-    private static void sendDifferentialTransformedScores(ServerPlayerEntity player, String virtualObjectiveName, 
+    private static void sendDifferentialTransformedScores(ServerPlayer player, String virtualObjectiveName, 
                                                          String originalObjectiveName, Map<String, Integer> scoreData, 
+                                                         Map<String, PlayerScoreEntry> originalEntries,
                                                          ScoreboardTransformData transformData) {
         // レート制限チェック（DDOS対策）
-        if (!RateLimiter.canSendScoreboardPacket(player.getUuid())) {
+        if (!RateLimiter.canSendScoreboardPacket(player.getUUID())) {
             ServerScoreboardLogger.warn("Rate limit exceeded for transformed scoreboard for player " + player.getName().getString());
             return;
         }
         
-        String playerUuid = player.getUuidAsString();
+        String playerUuid = player.getStringUUID();
         
         // プレイヤーの変換済みスコアキャッシュを取得または作成
-        Map<String, Map<String, Integer>> playerCache = transformedScoreCache.computeIfAbsent(playerUuid, k -> new ConcurrentHashMap<>());
-        Map<String, Integer> objectiveCache = playerCache.computeIfAbsent(originalObjectiveName, k -> new ConcurrentHashMap<>());
+        Map<String, Map<String, PlayerScoreEntry>> playerCache = transformedScoreCache.computeIfAbsent(playerUuid, k -> new ConcurrentHashMap<>());
+        Map<String, PlayerScoreEntry> objectiveCache = playerCache.computeIfAbsent(originalObjectiveName, k -> new ConcurrentHashMap<>());
         
         Set<String> currentPlayerNames = new HashSet<>();
         int updateCount = 0;
@@ -124,19 +132,21 @@ public class CustomScoreboardPacketSender {
             String playerName = entry.getKey();
             int originalScore = entry.getValue();
             int transformedScore = transformData.getTransformedScoreValue(originalObjectiveName, playerName, originalScore);
+            PlayerScoreEntry transformedEntry = createTransformedEntry(playerName, transformedScore, originalEntries.get(playerName));
             currentPlayerNames.add(playerName);
             
-            Integer cachedScore = objectiveCache.get(playerName);
-            if (cachedScore == null || !cachedScore.equals(transformedScore)) {
+            PlayerScoreEntry cachedEntry = objectiveCache.get(playerName);
+            if (cachedEntry == null || !cachedEntry.equals(transformedEntry)) {
                 // 変更があった場合のみパケットを送信（レート制限チェック付き）
-                if (RateLimiter.canSendPacket(player.getUuid())) {
-                    player.networkHandler.sendPacket(new ScoreboardPlayerUpdateS2CPacket(
-                        ServerScoreboard.UpdateMode.CHANGE,
+                if (RateLimiter.canSendPacket(player.getUUID())) {
+                    player.connection.send(new ClientboundSetScorePacket(
+                        transformedEntry.owner(),
                         virtualObjectiveName,
-                        playerName,
-                        transformedScore
+                        transformedEntry.value(),
+                        Optional.ofNullable(transformedEntry.display()),
+                        Optional.ofNullable(transformedEntry.numberFormatOverride())
                     ));
-                    objectiveCache.put(playerName, transformedScore);
+                    objectiveCache.put(playerName, transformedEntry);
                     updateCount++;
                 } else {
                 }
@@ -148,12 +158,10 @@ public class CustomScoreboardPacketSender {
         for (String cachedPlayerName : cachedPlayerNames) {
             if (!currentPlayerNames.contains(cachedPlayerName)) {
                 // プレイヤーが削除された場合（レート制限チェック付き）
-                if (RateLimiter.canSendPacket(player.getUuid())) {
-                    player.networkHandler.sendPacket(new ScoreboardPlayerUpdateS2CPacket(
-                        ServerScoreboard.UpdateMode.REMOVE,
-                        virtualObjectiveName,
+                if (RateLimiter.canSendPacket(player.getUUID())) {
+                    player.connection.send(new ClientboundResetScorePacket(
                         cachedPlayerName,
-                        0
+                        virtualObjectiveName
                     ));
                     objectiveCache.remove(cachedPlayerName);
                     removeCount++;
@@ -167,50 +175,62 @@ public class CustomScoreboardPacketSender {
                 ": " + updateCount + " updates, " + removeCount + " removes (total scores: " + scoreData.size() + ")");
             
             // 変換済みスコアボード表示を確実に維持
-            MinecraftServer server = player.getServer();
+            MinecraftServer server = player.level().getServer();
             if (server != null) {
-                ScoreboardObjective originalObjective = server.getScoreboard().getObjective(originalObjectiveName);
+                Objective originalObjective = server.getScoreboard().getObjective(originalObjectiveName);
                 if (originalObjective != null) {
-                    ScoreboardObjective virtualObjective = new VirtualObjective(
+                    Objective virtualObjective = new VirtualObjective(
                         virtualObjectiveName,
-                        originalObjective.getCriterion(),
+                        originalObjective.getCriteria(),
                         originalObjective.getDisplayName(),
-                        originalObjective.getRenderType()
+                        originalObjective.getRenderType(),
+                        originalObjective.numberFormat()
                     );
-                    player.networkHandler.sendPacket(new ScoreboardDisplayS2CPacket(1, virtualObjective));
+                    player.connection.send(new ClientboundSetDisplayObjectivePacket(DisplaySlot.SIDEBAR, virtualObjective));
                 }
             }
         }
     }
     
     // 仮想オブジェクティブクラス（サーバー側スコアボードに影響しない）
-    private static class VirtualObjective extends ScoreboardObjective {
-        public VirtualObjective(String name, ScoreboardCriterion criterion, Text displayName, ScoreboardCriterion.RenderType renderType) {
-            super(null, name, criterion, displayName, renderType);
+    private static class VirtualObjective extends Objective {
+        public VirtualObjective(String name, ObjectiveCriteria criterion, Component displayName, ObjectiveCriteria.RenderType renderType,
+                                NumberFormat numberFormat) {
+            super(null, name, criterion, displayName, renderType, false, numberFormat);
         }
     }
+
+    private static PlayerScoreEntry createTransformedEntry(String playerName, int transformedScore, PlayerScoreEntry originalEntry) {
+        return new PlayerScoreEntry(
+            playerName,
+            transformedScore,
+            originalEntry != null ? originalEntry.display() : null,
+            originalEntry != null ? originalEntry.numberFormatOverride() : null
+        );
+    }
     
-    public static void clearTransformedScoreboard(ServerPlayerEntity player) {
-        String virtualObjectiveName = "mysb_virtual_" + player.getUuidAsString().substring(0, 8);
+    public static void clearTransformedScoreboard(ServerPlayer player) {
+        String virtualObjectiveName = "mysb_virtual_" + player.getStringUUID().substring(0, 8);
         
         // 仮想オブジェクティブを作成してクリアパケットを送信
-        ScoreboardObjective virtualObjective = new VirtualObjective(
+        Objective virtualObjective = new VirtualObjective(
             virtualObjectiveName,
-            ScoreboardCriterion.DUMMY,
-            Text.literal(""),
-            ScoreboardCriterion.RenderType.INTEGER
+            ObjectiveCriteria.DUMMY,
+            Component.literal(""),
+            ObjectiveCriteria.RenderType.INTEGER,
+            null
         );
         
         // サイドバーをクリア
-        player.networkHandler.sendPacket(new ScoreboardDisplayS2CPacket(1, null));
+        player.connection.send(new ClientboundSetDisplayObjectivePacket(DisplaySlot.SIDEBAR, null));
         
         // クライアント側のオブジェクティブを削除
-        player.networkHandler.sendPacket(new ScoreboardObjectiveUpdateS2CPacket(virtualObjective, 1));
+        player.connection.send(new ClientboundSetObjectivePacket(virtualObjective, 1));
         
         ServerScoreboardLogger.info("Cleared virtual transformed scoreboard for player " + player.getName().getString());
         
         // 変換済みスコアキャッシュをクリア
-        clearTransformedScoreCache(player.getUuidAsString());
+        clearTransformedScoreCache(player.getStringUUID());
     }
     
     // プレイヤーの変換済みスコアキャッシュをクリア
@@ -220,46 +240,48 @@ public class CustomScoreboardPacketSender {
     
     // 特定のオブジェクティブの変換済みキャッシュをクリア
     public static void clearTransformedObjectiveCache(String objectiveName) {
-        for (Map<String, Map<String, Integer>> playerCache : transformedScoreCache.values()) {
+        for (Map<String, Map<String, PlayerScoreEntry>> playerCache : transformedScoreCache.values()) {
             playerCache.remove(objectiveName);
         }
     }
     
     // カスタムスコアボード機能（既存）
-    public static void sendCustomScoreboard(ServerPlayerEntity player, CustomScoreboardData data) {
+    public static void sendCustomScoreboard(ServerPlayer player, CustomScoreboardData data) {
         if (!data.isEnabled()) {
             clearCustomScoreboard(player);
             return;
         }
         
-        MinecraftServer server = player.getServer();
+        MinecraftServer server = player.level().getServer();
         if (server == null) return;
         
-        String objectiveName = "mysb_custom_" + player.getUuidAsString().substring(0, 8);
-        Text displayName = Text.literal(data.getCustomDisplayName() != null ? data.getCustomDisplayName() : "Custom Scoreboard");
+        String objectiveName = "mysb_custom_" + player.getStringUUID().substring(0, 8);
+        Component displayName = Component.literal(data.getCustomDisplayName() != null ? data.getCustomDisplayName() : "Custom Scoreboard");
         
         ServerScoreboard scoreboard = server.getScoreboard();
         
         // 既存のオブジェクティブを削除
-        ScoreboardObjective existingObjective = scoreboard.getObjective(objectiveName);
+        Objective existingObjective = scoreboard.getObjective(objectiveName);
         if (existingObjective != null) {
             scoreboard.removeObjective(existingObjective);
         }
         
         // 新しいオブジェクティブを作成
-        ScoreboardObjective objective = scoreboard.addObjective(
+        Objective objective = scoreboard.addObjective(
             objectiveName,
-            ScoreboardCriterion.DUMMY,
+            ObjectiveCriteria.DUMMY,
             displayName,
-            ScoreboardCriterion.RenderType.INTEGER
+            ObjectiveCriteria.RenderType.INTEGER,
+            false,
+            null
         );
         
         // プレイヤーにオブジェクティブを送信（レート制限付き）
-        if (RateLimiter.canSendPacket(player.getUuid())) {
-            player.networkHandler.sendPacket(new ScoreboardObjectiveUpdateS2CPacket(objective, 0));
+        if (RateLimiter.canSendPacket(player.getUUID())) {
+            player.connection.send(new ClientboundSetObjectivePacket(objective, 0));
             
             // サイドバーに表示
-            player.networkHandler.sendPacket(new ScoreboardDisplayS2CPacket(1, objective));
+            player.connection.send(new ClientboundSetDisplayObjectivePacket(DisplaySlot.SIDEBAR, objective));
         } else {
             ServerScoreboardLogger.warn("Cannot send custom scoreboard due to rate limit for player " + player.getName().getString());
             return;
@@ -267,13 +289,14 @@ public class CustomScoreboardPacketSender {
         
         // カスタムスコアを送信（レート制限付き）
         for (Map.Entry<String, Integer> entry : data.getCustomScores().entrySet()) {
-            if (RateLimiter.canSendPacket(player.getUuid())) {
-                scoreboard.getPlayerScore(entry.getKey(), objective).setScore(entry.getValue());
-                player.networkHandler.sendPacket(new ScoreboardPlayerUpdateS2CPacket(
-                    ServerScoreboard.UpdateMode.CHANGE,
-                    objectiveName,
+            if (RateLimiter.canSendPacket(player.getUUID())) {
+                scoreboard.getOrCreatePlayerScore(ScoreHolder.forNameOnly(entry.getKey()), objective).set(entry.getValue());
+                player.connection.send(new ClientboundSetScorePacket(
                     entry.getKey(),
-                    entry.getValue()
+                    objectiveName,
+                    entry.getValue(),
+                    Optional.empty(),
+                    Optional.empty()
                 ));
             } else {
                 break; // レート制限に達したら停止
@@ -283,17 +306,17 @@ public class CustomScoreboardPacketSender {
         ServerScoreboardLogger.info("Sent custom scoreboard to player " + player.getName().getString());
     }
     
-    public static void clearCustomScoreboard(ServerPlayerEntity player) {
-        MinecraftServer server = player.getServer();
+    public static void clearCustomScoreboard(ServerPlayer player) {
+        MinecraftServer server = player.level().getServer();
         if (server == null) return;
         
-        String objectiveName = "mysb_custom_" + player.getUuidAsString().substring(0, 8);
+        String objectiveName = "mysb_custom_" + player.getStringUUID().substring(0, 8);
         ServerScoreboard scoreboard = server.getScoreboard();
         
-        ScoreboardObjective objective = scoreboard.getObjective(objectiveName);
+        Objective objective = scoreboard.getObjective(objectiveName);
         if (objective != null) {
-            player.networkHandler.sendPacket(new ScoreboardDisplayS2CPacket(1, null));
-            player.networkHandler.sendPacket(new ScoreboardObjectiveUpdateS2CPacket(objective, 1));
+            player.connection.send(new ClientboundSetDisplayObjectivePacket(DisplaySlot.SIDEBAR, null));
+            player.connection.send(new ClientboundSetObjectivePacket(objective, 1));
             scoreboard.removeObjective(objective);
         }
         

@@ -1,28 +1,34 @@
 package com.astralsmp.mysb;
 
-import net.minecraft.nbt.NbtCompound;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
-import net.minecraft.nbt.NbtList;
-import net.minecraft.nbt.NbtString;
-import net.minecraft.scoreboard.Scoreboard;
-import net.minecraft.scoreboard.ScoreboardCriterion;
-import net.minecraft.scoreboard.ScoreboardObjective;
-import net.minecraft.scoreboard.ServerScoreboard;
+import net.minecraft.nbt.StringTag;
+import net.minecraft.network.protocol.game.ClientboundResetScorePacket;
+import net.minecraft.network.protocol.game.ClientboundSetScorePacket;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.text.Text;
-import net.minecraft.util.WorldSavePath;
-
+import net.minecraft.server.ServerScoreboard;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.storage.LevelResource;
+import net.minecraft.world.scores.DisplaySlot;
+import net.minecraft.world.scores.Objective;
+import net.minecraft.world.scores.PlayerScoreEntry;
+import net.minecraft.world.scores.Scoreboard;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Set;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.Objects;
 
 public class ServerScoreboardManager {
@@ -31,8 +37,8 @@ public class ServerScoreboardManager {
     private static final Map<UUID, CustomScoreboardData> customScoreboardData = new ConcurrentHashMap<>();
     private static final Map<UUID, ScoreboardTransformData> transformData = new ConcurrentHashMap<>();
     private static final Set<UUID> playersToUpdate = new HashSet<>();
-    // スコアボードキャッシュ: プレイヤーUUID -> オブジェクティブ名 -> プレイヤー名 -> スコア値
-    private static final Map<UUID, Map<String, Map<String, Integer>>> playerScoreboardCache = new ConcurrentHashMap<>();
+    // スコアボードキャッシュ: プレイヤーUUID -> オブジェクティブ名 -> プレイヤー名 -> 直近送信したスコアエントリ
+    private static final Map<UUID, Map<String, Map<String, PlayerScoreEntry>>> playerScoreboardCache = new ConcurrentHashMap<>();
     // プレイヤー毎の現在表示中のオブジェクティブを追跡
     private static final Map<UUID, String> playerActiveObjectives = new ConcurrentHashMap<>();
     // スコアボード表示保持システム
@@ -62,7 +68,7 @@ public class ServerScoreboardManager {
         File playerDataFile = configDir.resolve("player_scoreboards.dat").toFile();
         if (playerDataFile.exists()) {
             try {
-                NbtCompound nbt = NbtIo.readCompressed(playerDataFile);
+                CompoundTag nbt = NbtIo.readCompressed(playerDataFile.toPath(), NbtAccounter.unlimitedHeap());
                 loadPlayerData(nbt);
             } catch (IOException e) {
                 ServerScoreboardLogger.error("Failed to load player scoreboard data", e);
@@ -75,10 +81,10 @@ public class ServerScoreboardManager {
 
         // scoreboard.datからオブジェクティブ情報を取得
         try {
-            File scoreboardFile = server.getSavePath(WorldSavePath.ROOT)
-                    .resolve("data/scoreboard.dat").toFile();
+            File scoreboardFile = server.getWorldPath(LevelResource.ROOT)
+                    .resolve("data/minecraft/scoreboard.dat").toFile();
             if (scoreboardFile.exists()) {
-                NbtCompound nbt = NbtIo.readCompressed(scoreboardFile);
+                CompoundTag nbt = NbtIo.readCompressed(scoreboardFile.toPath(), NbtAccounter.unlimitedHeap());
                 parseScoreboardData(nbt);
             }
         } catch (IOException e) {
@@ -87,28 +93,28 @@ public class ServerScoreboardManager {
     }
 
     private static Path getConfigDirectory() {
-        return server.getSavePath(WorldSavePath.ROOT).resolve("config/mysb");
+        return server.getWorldPath(LevelResource.ROOT).resolve("config/mysb");
     }
 
-    private static void parseScoreboardData(NbtCompound nbt) {
+    private static void parseScoreboardData(CompoundTag nbt) {
         // scoreboard.datの構造に基づいてデータを解析
         if (nbt.contains("data")) {
-            NbtCompound data = nbt.getCompound("data");
+            CompoundTag data = nbt.getCompoundOrEmpty("data");
             // Objectives情報をキャッシュに保存（GUI表示用）
             if (data.contains("Objectives")) {
-                NbtList objectives = data.getList("Objectives", 10); // 10 = Compound
+                ListTag objectives = data.getListOrEmpty("Objectives");
                 // 必要に応じて処理
             }
         }
     }
 
-    private static void loadPlayerData(NbtCompound nbt) {
+    private static void loadPlayerData(CompoundTag nbt) {
         if (nbt.contains("players")) {
-            NbtCompound players = nbt.getCompound("players");
-            for (String uuidStr : players.getKeys()) {
+            CompoundTag players = nbt.getCompoundOrEmpty("players");
+            for (String uuidStr : players.keySet()) {
                 try {
                     UUID playerId = UUID.fromString(uuidStr);
-                    NbtCompound playerNbt = players.getCompound(uuidStr);
+                    CompoundTag playerNbt = players.getCompoundOrEmpty(uuidStr);
                     PlayerScoreboardData data = new PlayerScoreboardData();
                     data.fromNbt(playerNbt);
                     playerData.put(playerId, data);
@@ -120,11 +126,11 @@ public class ServerScoreboardManager {
         
         // カスタムスコアボードデータを読み込み
         if (nbt.contains("customScoreboards")) {
-            NbtCompound customScoreboards = nbt.getCompound("customScoreboards");
-            for (String uuidStr : customScoreboards.getKeys()) {
+            CompoundTag customScoreboards = nbt.getCompoundOrEmpty("customScoreboards");
+            for (String uuidStr : customScoreboards.keySet()) {
                 try {
                     UUID playerId = UUID.fromString(uuidStr);
-                    NbtCompound customNbt = customScoreboards.getCompound(uuidStr);
+                    CompoundTag customNbt = customScoreboards.getCompoundOrEmpty(uuidStr);
                     CustomScoreboardData customData = new CustomScoreboardData(playerId);
                     customData.fromNbt(customNbt);
                     customScoreboardData.put(playerId, customData);
@@ -136,11 +142,11 @@ public class ServerScoreboardManager {
         
         // 変換データを読み込み
         if (nbt.contains("transformData")) {
-            NbtCompound transforms = nbt.getCompound("transformData");
-            for (String uuidStr : transforms.getKeys()) {
+            CompoundTag transforms = nbt.getCompoundOrEmpty("transformData");
+            for (String uuidStr : transforms.keySet()) {
                 try {
                     UUID playerId = UUID.fromString(uuidStr);
-                    NbtCompound transformNbt = transforms.getCompound(uuidStr);
+                    CompoundTag transformNbt = transforms.getCompoundOrEmpty(uuidStr);
                     ScoreboardTransformData transform = new ScoreboardTransformData(playerId);
                     transform.fromNbt(transformNbt);
                     transformData.put(playerId, transform);
@@ -155,8 +161,8 @@ public class ServerScoreboardManager {
         Path configDir = getConfigDirectory();
         File playerDataFile = configDir.resolve("player_scoreboards.dat").toFile();
 
-        NbtCompound nbt = new NbtCompound();
-        NbtCompound players = new NbtCompound();
+        CompoundTag nbt = new CompoundTag();
+        CompoundTag players = new CompoundTag();
 
         for (Map.Entry<UUID, PlayerScoreboardData> entry : playerData.entrySet()) {
             players.put(entry.getKey().toString(), entry.getValue().toNbt());
@@ -165,21 +171,21 @@ public class ServerScoreboardManager {
         nbt.put("players", players);
         
         // カスタムスコアボードデータを保存
-        NbtCompound customScoreboards = new NbtCompound();
+        CompoundTag customScoreboards = new CompoundTag();
         for (Map.Entry<UUID, CustomScoreboardData> entry : customScoreboardData.entrySet()) {
             customScoreboards.put(entry.getKey().toString(), entry.getValue().toNbt());
         }
         nbt.put("customScoreboards", customScoreboards);
         
         // 変換データを保存
-        NbtCompound transforms = new NbtCompound();
+        CompoundTag transforms = new CompoundTag();
         for (Map.Entry<UUID, ScoreboardTransformData> entry : transformData.entrySet()) {
             transforms.put(entry.getKey().toString(), entry.getValue().toNbt());
         }
         nbt.put("transformData", transforms);
 
         try {
-            NbtIo.writeCompressed(nbt, playerDataFile);
+            NbtIo.writeCompressed(nbt, playerDataFile.toPath());
         } catch (IOException e) {
             ServerScoreboardLogger.error("Failed to save player scoreboard data", e);
         }
@@ -215,7 +221,7 @@ public class ServerScoreboardManager {
         
         data.setDisplayObjective(objectiveName);
 
-        ServerPlayerEntity player = server.getPlayerManager().getPlayer(playerId);
+        ServerPlayer player = server.getPlayerList().getPlayer(playerId);
         if (player != null) {
             updatePlayerScoreboard(player, data);
         }
@@ -243,7 +249,7 @@ public class ServerScoreboardManager {
         
         data.setScore(objectiveName, score);
 
-        ServerPlayerEntity player = server.getPlayerManager().getPlayer(playerId);
+        ServerPlayer player = server.getPlayerList().getPlayer(playerId);
         if (player != null) {
             updatePlayerScoreboard(player, data);
         }
@@ -254,7 +260,7 @@ public class ServerScoreboardManager {
         if (data != null && data.isEnabled()) {
             data.setCustomScore(scoreName, score);
             
-            ServerPlayerEntity player = server.getPlayerManager().getPlayer(playerId);
+            ServerPlayer player = server.getPlayerList().getPlayer(playerId);
             if (player != null) {
                 // カスタムスコアボードを再送信
                 CustomScoreboardPacketSender.sendCustomScoreboard(player, data);
@@ -270,7 +276,7 @@ public class ServerScoreboardManager {
         return playerData.get(playerId);
     }
 
-    private static void updatePlayerScoreboard(ServerPlayerEntity player, PlayerScoreboardData data) {
+    private static void updatePlayerScoreboard(ServerPlayer player, PlayerScoreboardData data) {
         String objectiveName = data.getDisplayObjective();
         
         if (objectiveName.isEmpty()) {
@@ -281,17 +287,17 @@ public class ServerScoreboardManager {
         
         // 通常のスコアボード表示（パケットベース）
         Scoreboard scoreboard = server.getScoreboard();
-        ScoreboardObjective objective = scoreboard.getObjective(objectiveName);
+        Objective objective = scoreboard.getObjective(objectiveName);
         
         if (objective != null) {
             // 前のオブジェクティブの監視を停止
-            PlayerScoreboardData oldData = playerData.get(player.getUuid());
+            PlayerScoreboardData oldData = playerData.get(player.getUUID());
             if (oldData != null && !oldData.getDisplayObjective().isEmpty()) {
-                removeObjectiveWatcher(player.getUuid(), oldData.getDisplayObjective());
+                removeObjectiveWatcher(player.getUUID(), oldData.getDisplayObjective());
             }
             
             // 新しいオブジェクティブの監視を開始
-            addObjectiveWatcher(player.getUuid(), objectiveName);
+            addObjectiveWatcher(player.getUUID(), objectiveName);
             
             // 強制的にスコアボードを再同期
             syncScoreboardToPlayer(player, objective);
@@ -301,16 +307,16 @@ public class ServerScoreboardManager {
         }
     }
     
-    private static void syncScoreboardToPlayer(ServerPlayerEntity player, ScoreboardObjective objective) {
+    private static void syncScoreboardToPlayer(ServerPlayer player, Objective objective) {
         // より簡単で信頼性の高い方法：直接元のオブジェクティブを使用
         sendScoreboardDisplayPacketOnly(player, objective);
     }
     
     
-    private static void sendScoreboardDisplayPacketOnly(ServerPlayerEntity player, ScoreboardObjective objective) {
+    private static void sendScoreboardDisplayPacketOnly(ServerPlayer player, Objective objective) {
         try {
             if (objective != null) {
-                UUID playerId = player.getUuid();
+                UUID playerId = player.getUUID();
                 String objectiveName = objective.getName();
                 
                 // 永続表示システム：常にスコアボードを表示保持
@@ -324,13 +330,13 @@ public class ServerScoreboardManager {
                     // 初回またはオブジェクト切り替え時の永続表示設定
                     
                     // 1. オブジェクト作成
-                    player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardObjectiveUpdateS2CPacket(objective, 0));
+                    player.connection.send(new net.minecraft.network.protocol.game.ClientboundSetObjectivePacket(objective, 0));
                     
                     // 2. 永続的にサイドバー表示（消えないように）
-                    player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardDisplayS2CPacket(1, objective));
+                    player.connection.send(new net.minecraft.network.protocol.game.ClientboundSetDisplayObjectivePacket(DisplaySlot.SIDEBAR, objective));
                     
                     // 3. キャッシュをクリアして初期同期
-                    Map<String, Map<String, Integer>> playerCache = playerScoreboardCache.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>());
+                    Map<String, Map<String, PlayerScoreEntry>> playerCache = playerScoreboardCache.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>());
                     playerCache.remove(objectiveName);
                     
                     // 4. 全スコアを送信（永続表示の基盤）
@@ -341,9 +347,9 @@ public class ServerScoreboardManager {
                 maintainPersistentDisplay(player, objective);
             } else {
                 // パケットのみでスコアボードをクリア
-                UUID playerId = player.getUuid();
+                UUID playerId = player.getUUID();
                 playerActiveObjectives.remove(playerId); // アクティブオブジェクティブをクリア
-                player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardDisplayS2CPacket(1, null));
+                player.connection.send(new net.minecraft.network.protocol.game.ClientboundSetDisplayObjectivePacket(DisplaySlot.SIDEBAR, null));
             }
         } catch (Exception e) {
             ServerScoreboardLogger.error("Failed to send scoreboard display packet to player " + player.getName().getString(), e);
@@ -351,9 +357,9 @@ public class ServerScoreboardManager {
     }
     
     
-    private static void clearCustomObjectiveForPlayer(ServerPlayerEntity player) {
+    private static void clearCustomObjectiveForPlayer(ServerPlayer player) {
         try {
-            PlayerScoreboardData data = playerData.get(player.getUuid());
+            PlayerScoreboardData data = playerData.get(player.getUUID());
             if (data != null) {
                 data.setDisplayObjective("");
             }
@@ -364,8 +370,8 @@ public class ServerScoreboardManager {
     
 
 
-    public static void onPlayerJoin(ServerPlayerEntity player) {
-        UUID playerId = player.getUuid();
+    public static void onPlayerJoin(ServerPlayer player) {
+        UUID playerId = player.getUUID();
         
         PlayerScoreboardData data = playerData.get(playerId);
         CustomScoreboardData customData = customScoreboardData.get(playerId);
@@ -396,9 +402,9 @@ public class ServerScoreboardManager {
         }
     }
 
-    public static void onPlayerDisconnect(ServerPlayerEntity player) {
+    public static void onPlayerDisconnect(ServerPlayer player) {
         // プレイヤー切断時のクリーンアップ
-        UUID playerId = player.getUuid();
+        UUID playerId = player.getUUID();
         String playerName = player.getName().getString();
 
         // プレイヤーの統計をキャッシュに保存
@@ -428,12 +434,12 @@ public class ServerScoreboardManager {
     // リアルタイム差分更新メソッド（毎tick実行）- 永続表示版
     public static void updateClientScoreboardsDifferential(MinecraftServer server) {
         // 全プレイヤーの表示中スコアボードに対して永続表示 + スコア差分更新
-        for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
-            UUID playerId = player.getUuid();
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            UUID playerId = player.getUUID();
             String activeObjective = playerActiveObjectives.get(playerId);
             
             if (activeObjective != null && !activeObjective.isEmpty()) {
-                ScoreboardObjective objective = server.getScoreboard().getObjective(activeObjective);
+                Objective objective = server.getScoreboard().getObjective(activeObjective);
                 if (objective != null) {
                     // 永続表示維持 + スコア値のみ更新
                     maintainPersistentDisplay(player, objective);
@@ -448,10 +454,10 @@ public class ServerScoreboardManager {
         
         // 全プレイヤーのクライアントスコアボードを定期更新
         // パフォーマンスのため、必要なときだけ更新
-        for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
-            PlayerScoreboardData data = playerData.get(player.getUuid());
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            PlayerScoreboardData data = playerData.get(player.getUUID());
             if (data != null && data.isDirty()) {
-                playersToUpdate.add(player.getUuid());
+                playersToUpdate.add(player.getUUID());
                 data.setDirty(false);
             }
         }
@@ -477,7 +483,7 @@ public class ServerScoreboardManager {
 
 
         for (UUID playerId : playersToUpdate) {
-            ServerPlayerEntity player = server.getPlayerManager().getPlayer(playerId);
+            ServerPlayer player = server.getPlayerList().getPlayer(playerId);
             if (player != null) {
                 PlayerScoreboardData data = playerData.get(playerId);
                 if (data != null) {
@@ -498,9 +504,9 @@ public class ServerScoreboardManager {
             UUID playerId = entry.getKey();
             String objectiveName = entry.getValue();
             
-            ServerPlayerEntity player = server.getPlayerManager().getPlayer(playerId);
+            ServerPlayer player = server.getPlayerList().getPlayer(playerId);
             if (player != null) {
-                ScoreboardObjective objective = server.getScoreboard().getObjective(objectiveName);
+                Objective objective = server.getScoreboard().getObjective(objectiveName);
                 if (objective != null) {
                     sendScoreboardUpdatePackets(player, objective);
                 }
@@ -536,10 +542,10 @@ public class ServerScoreboardManager {
         
         data.reset();
 
-        ServerPlayerEntity player = server.getPlayerManager().getPlayer(playerId);
+        ServerPlayer player = server.getPlayerList().getPlayer(playerId);
         if (player != null) {
             // サーバーの現在のデフォルトスコアボードに戻す
-            ScoreboardObjective currentDefault = server.getScoreboard().getObjectiveForSlot(1);
+            Objective currentDefault = server.getScoreboard().getDisplayObjective(DisplaySlot.SIDEBAR);
             if (currentDefault != null) {
                 // サーバーのデフォルトスコアボードを強制的に再送信
                 forceServerScoreboardSync(player);
@@ -559,28 +565,23 @@ public class ServerScoreboardManager {
         transformData.remove(playerId);
     }
     
-    private static void forceServerScoreboardSync(ServerPlayerEntity player) {
+    private static void forceServerScoreboardSync(ServerPlayer player) {
         // サーバーの全てのスコアボード情報を再送信
         ServerScoreboard scoreboard = server.getScoreboard();
         
         // サイドバーのスコアボードを取得
-        ScoreboardObjective sidebarObjective = scoreboard.getObjectiveForSlot(1);
+        Objective sidebarObjective = scoreboard.getDisplayObjective(DisplaySlot.SIDEBAR);
         if (sidebarObjective != null) {
             // オブジェクティブを再送信
-            player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardObjectiveUpdateS2CPacket(sidebarObjective, 0));
+            player.connection.send(new net.minecraft.network.protocol.game.ClientboundSetObjectivePacket(sidebarObjective, 0));
             
             // 全スコアを再送信
-            scoreboard.getAllPlayerScores(sidebarObjective).forEach(score -> {
-                player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardPlayerUpdateS2CPacket(
-                    net.minecraft.scoreboard.ServerScoreboard.UpdateMode.CHANGE,
-                    sidebarObjective.getName(),
-                    score.getPlayerName(),
-                    score.getScore()
-                ));
+            scoreboard.listPlayerScores(sidebarObjective).forEach(score -> {
+                sendScoreUpdatePacket(player, sidebarObjective.getName(), score);
             });
             
             // サイドバーに表示
-            player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardDisplayS2CPacket(1, sidebarObjective));
+            player.connection.send(new net.minecraft.network.protocol.game.ClientboundSetDisplayObjectivePacket(DisplaySlot.SIDEBAR, sidebarObjective));
         }
     }
     
@@ -589,7 +590,7 @@ public class ServerScoreboardManager {
         CustomScoreboardData data = customScoreboardData.computeIfAbsent(playerId, CustomScoreboardData::new);
         data.setCustomObjective(objectiveName, displayName);
         
-        ServerPlayerEntity player = server.getPlayerManager().getPlayer(playerId);
+        ServerPlayer player = server.getPlayerList().getPlayer(playerId);
         if (player != null) {
             CustomScoreboardPacketSender.sendCustomScoreboard(player, data);
         }
@@ -604,7 +605,7 @@ public class ServerScoreboardManager {
         if (data != null && data.isEnabled()) {
             data.removeCustomScore(scoreName);
             
-            ServerPlayerEntity player = server.getPlayerManager().getPlayer(playerId);
+            ServerPlayer player = server.getPlayerList().getPlayer(playerId);
             if (player != null) {
                 // カスタムスコアボードを再送信
                 CustomScoreboardPacketSender.sendCustomScoreboard(player, data);
@@ -617,7 +618,7 @@ public class ServerScoreboardManager {
         if (data != null) {
             data.disable();
             
-            ServerPlayerEntity player = server.getPlayerManager().getPlayer(playerId);
+            ServerPlayer player = server.getPlayerList().getPlayer(playerId);
             if (player != null) {
                 CustomScoreboardPacketSender.clearCustomScoreboard(player);
             }
@@ -639,7 +640,7 @@ public class ServerScoreboardManager {
         data.setEnabled(true);
         
         // すぐに変換されたスコアボードを表示
-        ServerPlayerEntity player = server.getPlayerManager().getPlayer(playerId);
+        ServerPlayer player = server.getPlayerList().getPlayer(playerId);
         if (player != null) {
             CustomScoreboardPacketSender.sendTransformedScoreboard(player, objectiveName, data);
         }
@@ -652,7 +653,7 @@ public class ServerScoreboardManager {
         data.setEnabled(true);
         
         // 変換を適用
-        ServerPlayerEntity player = server.getPlayerManager().getPlayer(playerId);
+        ServerPlayer player = server.getPlayerList().getPlayer(playerId);
         if (player != null) {
             CustomScoreboardPacketSender.sendTransformedScoreboard(player, objectiveName, data);
         }
@@ -664,7 +665,7 @@ public class ServerScoreboardManager {
             data.clear();
             
             // 変換されたスコアボードをクリア
-            ServerPlayerEntity player = server.getPlayerManager().getPlayer(playerId);
+            ServerPlayer player = server.getPlayerList().getPlayer(playerId);
             if (player != null) {
                 CustomScoreboardPacketSender.clearTransformedScoreboard(player);
             }
@@ -674,7 +675,7 @@ public class ServerScoreboardManager {
     public static void refreshTransformedScoreboard(UUID playerId, String objectiveName) {
         ScoreboardTransformData data = transformData.get(playerId);
         if (data != null && data.isEnabled()) {
-            ServerPlayerEntity player = server.getPlayerManager().getPlayer(playerId);
+            ServerPlayer player = server.getPlayerList().getPlayer(playerId);
             if (player != null) {
                 CustomScoreboardPacketSender.sendTransformedScoreboard(player, objectiveName, data);
             }
@@ -682,7 +683,7 @@ public class ServerScoreboardManager {
     }
     
     // 自動変換関連のメソッド
-    public static void checkAndApplyAutoTransforms(ServerPlayerEntity player) {
+    public static void checkAndApplyAutoTransforms(ServerPlayer player) {
         if (!ScoreboardAutoTransform.isAutoApplyEnabled()) return; 
         
         // サーバーのスコアボードから現在表示中のオブジェクティブを取得
@@ -690,10 +691,10 @@ public class ServerScoreboardManager {
             String objectiveName = objective.getName();
             if (ScoreboardAutoTransform.shouldAutoTransform(objectiveName)) {
                 ScoreboardTransformData autoTransformData = ScoreboardAutoTransform.createTransformData(
-                    player.getUuid(), objectiveName);
+                    player.getUUID(), objectiveName);
                 
                 if (autoTransformData != null) {
-                    transformData.put(player.getUuid(), autoTransformData);
+                    transformData.put(player.getUUID(), autoTransformData);
                     CustomScoreboardPacketSender.sendTransformedScoreboard(player, objectiveName, autoTransformData);
                 }
             }
@@ -704,7 +705,7 @@ public class ServerScoreboardManager {
         ScoreboardAutoTransform.reloadConfig();
         
         // 全プレイヤーに自動変換を再適用
-        server.getPlayerManager().getPlayerList().forEach(player -> {
+        server.getPlayerList().getPlayers().forEach(player -> {
             checkAndApplyAutoTransforms(player);
         });
         
@@ -767,12 +768,12 @@ public class ServerScoreboardManager {
             dirty = true;
         }
 
-        public NbtCompound toNbt() {
-            NbtCompound nbt = new NbtCompound();
+        public CompoundTag toNbt() {
+            CompoundTag nbt = new CompoundTag();
             nbt.putString("displayObjective", displayObjective);
             nbt.putBoolean("enabled", enabled);
             
-            NbtCompound scoresNbt = new NbtCompound();
+            CompoundTag scoresNbt = new CompoundTag();
             for (Map.Entry<String, Integer> entry : scores.entrySet()) {
                 scoresNbt.putInt(entry.getKey(), entry.getValue());
             }
@@ -781,15 +782,15 @@ public class ServerScoreboardManager {
             return nbt;
         }
 
-        public void fromNbt(NbtCompound nbt) {
-            displayObjective = nbt.getString("displayObjective");
-            enabled = nbt.getBoolean("enabled");
+        public void fromNbt(CompoundTag nbt) {
+            displayObjective = nbt.getStringOr("displayObjective", "");
+            enabled = nbt.getBooleanOr("enabled", false);
             
             scores.clear();
             if (nbt.contains("scores")) {
-                NbtCompound scoresNbt = nbt.getCompound("scores");
-                for (String key : scoresNbt.getKeys()) {
-                    scores.put(key, scoresNbt.getInt(key));
+                CompoundTag scoresNbt = nbt.getCompoundOrEmpty("scores");
+                for (String key : scoresNbt.keySet()) {
+                    scores.put(key, scoresNbt.getIntOr(key, 0));
                 }
             }
         }
@@ -797,22 +798,22 @@ public class ServerScoreboardManager {
 
     // 統計スコアボードを表示しているすべてのプレイヤーに更新を送信
     public static void updateTotalStatsForWatchers() {
-        for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
-            PlayerScoreboardData data = playerData.get(player.getUuid());
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            PlayerScoreboardData data = playerData.get(player.getUUID());
             if (data != null && data.isEnabled() && !data.getDisplayObjective().isEmpty()) {
                 String objective = data.getDisplayObjective();
                 if (TotalStatsManager.isTotalObjective(objective)) {
-                    playersToUpdate.add(player.getUuid());
+                    playersToUpdate.add(player.getUUID());
                 }
             }
         }
     }
     
     // 統計スコアボードの更新パケットを送信（表示設定は変更しない）
-    private static void sendScoreboardUpdatePackets(ServerPlayerEntity player, ScoreboardObjective objective) {
+    private static void sendScoreboardUpdatePackets(ServerPlayer player, Objective objective) {
         if (objective != null) {
             // プレイヤーがこのオブジェクティブを表示しているか確認
-            UUID playerId = player.getUuid();
+            UUID playerId = player.getUUID();
             String playerActiveObjective = playerActiveObjectives.get(playerId);
             
             if (playerActiveObjective != null && playerActiveObjective.equals(objective.getName())) {
@@ -824,42 +825,46 @@ public class ServerScoreboardManager {
     }
     
     // 永続表示保持システム（スコアボードが消えないように維持）
-    private static void maintainPersistentDisplay(ServerPlayerEntity player, ScoreboardObjective objective) {
+    private static void maintainPersistentDisplay(ServerPlayer player, Objective objective) {
         // 毎回表示パケットを送信してスコアボード表示を強制維持
         // これにより他のパケットの影響でスコアボードが消えることを防ぐ
-        player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardDisplayS2CPacket(1, objective));
+        player.connection.send(new net.minecraft.network.protocol.game.ClientboundSetDisplayObjectivePacket(DisplaySlot.SIDEBAR, objective));
+    }
+
+    private static void sendScoreUpdatePacket(ServerPlayer player, String objectiveName, PlayerScoreEntry entry) {
+        player.connection.send(new ClientboundSetScorePacket(
+            entry.owner(),
+            objectiveName,
+            entry.value(),
+            Optional.ofNullable(entry.display()),
+            Optional.ofNullable(entry.numberFormatOverride())
+        ));
     }
     
     // 最小限のスコア更新（通信量最適化版）
-    private static void sendMinimalScoreUpdate(ServerPlayerEntity player, ScoreboardObjective objective, boolean forceFullSync) {
-        UUID playerId = player.getUuid();
+    private static void sendMinimalScoreUpdate(ServerPlayer player, Objective objective, boolean forceFullSync) {
+        UUID playerId = player.getUUID();
         String objectiveName = objective.getName();
         
         // プレイヤーのスコアキャッシュを取得
-        Map<String, Map<String, Integer>> playerCache = playerScoreboardCache.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>());
-        Map<String, Integer> objectiveCache = playerCache.computeIfAbsent(objectiveName, k -> new ConcurrentHashMap<>());
+        Map<String, Map<String, PlayerScoreEntry>> playerCache = playerScoreboardCache.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>());
+        Map<String, PlayerScoreEntry> objectiveCache = playerCache.computeIfAbsent(objectiveName, k -> new ConcurrentHashMap<>());
         
         // 現在のスコアを取得
-        var currentScores = server.getScoreboard().getAllPlayerScores(objective);
+        Collection<PlayerScoreEntry> currentScores = server.getScoreboard().listPlayerScores(objective);
         Set<String> currentPlayerNames = new HashSet<>();
         int packetCount = 0;
         
         // スコア変更のみ送信（バニラと同じ動作）
-        for (var score : currentScores) {
-            String playerName = score.getPlayerName();
-            int currentValue = score.getScore();
+        for (PlayerScoreEntry score : currentScores) {
+            String playerName = score.owner();
             currentPlayerNames.add(playerName);
             
-            Integer cachedValue = objectiveCache.get(playerName);
-            if (forceFullSync || cachedValue == null || !cachedValue.equals(currentValue)) {
+            PlayerScoreEntry cachedEntry = objectiveCache.get(playerName);
+            if (forceFullSync || cachedEntry == null || !cachedEntry.equals(score)) {
                 // スコア更新パケットのみ（表示パケットは送信しない）
-                player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardPlayerUpdateS2CPacket(
-                    net.minecraft.scoreboard.ServerScoreboard.UpdateMode.CHANGE,
-                    objectiveName,
-                    playerName,
-                    currentValue
-                ));
-                objectiveCache.put(playerName, currentValue);
+                sendScoreUpdatePacket(player, objectiveName, score);
+                objectiveCache.put(playerName, score);
                 packetCount++;
             }
         }
@@ -870,11 +875,9 @@ public class ServerScoreboardManager {
             var entry = iterator.next();
             String playerName = entry.getKey();
             if (!currentPlayerNames.contains(playerName)) {
-                player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardPlayerUpdateS2CPacket(
-                    net.minecraft.scoreboard.ServerScoreboard.UpdateMode.REMOVE,
-                    objectiveName,
+                player.connection.send(new ClientboundResetScorePacket(
                     playerName,
-                    0
+                    objectiveName
                 ));
                 iterator.remove();
                 packetCount++;
@@ -887,9 +890,9 @@ public class ServerScoreboardManager {
     }
     
     // 差分スコアボード更新を送信（パケット数削減）
-    private static void sendDifferentialScoreboardUpdate(ServerPlayerEntity player, ScoreboardObjective objective) {
+    private static void sendDifferentialScoreboardUpdate(ServerPlayer player, Objective objective) {
         // パケット制限を撤廃（リアルタイム更新でスムーズな表示を実現）
-        UUID playerId = player.getUuid();
+        UUID playerId = player.getUUID();
         String objectiveName = objective.getName();
         
         // プレイヤーがこのオブジェクティブを表示しているかチェック
@@ -900,31 +903,25 @@ public class ServerScoreboardManager {
         }
         
         // プレイヤーのスコアキャッシュを取得または作成
-        Map<String, Map<String, Integer>> playerCache = playerScoreboardCache.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>());
-        Map<String, Integer> objectiveCache = playerCache.computeIfAbsent(objectiveName, k -> new ConcurrentHashMap<>());
+        Map<String, Map<String, PlayerScoreEntry>> playerCache = playerScoreboardCache.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>());
+        Map<String, PlayerScoreEntry> objectiveCache = playerCache.computeIfAbsent(objectiveName, k -> new ConcurrentHashMap<>());
         
         // 現在のスコアデータを取得
-        var currentScores = server.getScoreboard().getAllPlayerScores(objective);
+        Collection<PlayerScoreEntry> currentScores = server.getScoreboard().listPlayerScores(objective);
         Set<String> currentPlayerNames = new HashSet<>();
         int updateCount = 0;
         int removeCount = 0;
         
         // 更新または新規追加されたスコアのみを送信
-        for (var score : currentScores) {
-            String playerName = score.getPlayerName();
-            int currentScore = score.getScore();
+        for (PlayerScoreEntry score : currentScores) {
+            String playerName = score.owner();
             currentPlayerNames.add(playerName);
             
-            Integer cachedScore = objectiveCache.get(playerName);
-            if (cachedScore == null || !cachedScore.equals(currentScore)) {
+            PlayerScoreEntry cachedEntry = objectiveCache.get(playerName);
+            if (cachedEntry == null || !cachedEntry.equals(score)) {
                 // 変更があった場合のみパケットを送信（制限なし）
-                player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardPlayerUpdateS2CPacket(
-                    net.minecraft.scoreboard.ServerScoreboard.UpdateMode.CHANGE,
-                    objectiveName,
-                    playerName,
-                    currentScore
-                ));
-                objectiveCache.put(playerName, currentScore);
+                sendScoreUpdatePacket(player, objectiveName, score);
+                objectiveCache.put(playerName, score);
                 updateCount++;
             }
         }
@@ -934,11 +931,9 @@ public class ServerScoreboardManager {
         for (String cachedPlayerName : cachedPlayerNames) {
             if (!currentPlayerNames.contains(cachedPlayerName)) {
                 // プレイヤーが削除された場合（制限なし）
-                player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardPlayerUpdateS2CPacket(
-                    net.minecraft.scoreboard.ServerScoreboard.UpdateMode.REMOVE,
-                    objectiveName,
+                player.connection.send(new ClientboundResetScorePacket(
                     cachedPlayerName,
-                    0
+                    objectiveName
                 ));
                 objectiveCache.remove(cachedPlayerName);
                 removeCount++;
@@ -956,7 +951,7 @@ public class ServerScoreboardManager {
     
     // 特定のオブジェクティブのキャッシュをクリア
     public static void clearObjectiveCache(String objectiveName) {
-        for (Map<String, Map<String, Integer>> playerCache : playerScoreboardCache.values()) {
+        for (Map<String, Map<String, PlayerScoreEntry>> playerCache : playerScoreboardCache.values()) {
             playerCache.remove(objectiveName);
         }
     }
@@ -965,36 +960,36 @@ public class ServerScoreboardManager {
         File statsConfigFile = configDir.resolve("total_stats_config.dat").toFile();
         if (statsConfigFile.exists()) {
             try {
-                NbtCompound nbt = NbtIo.readCompressed(statsConfigFile);
+                CompoundTag nbt = NbtIo.readCompressed(statsConfigFile.toPath(), NbtAccounter.unlimitedHeap());
 
                 // 有効な統計を読み込み
                 if (nbt.contains("enabledStats")) {
-                    NbtList enabledList = nbt.getList("enabledStats", 8); // 8 = String
+                    ListTag enabledList = nbt.getListOrEmpty("enabledStats");
                     for (int i = 0; i < enabledList.size(); i++) {
-                        String statId = enabledList.getString(i);
+                        String statId = enabledList.getStringOr(i, "");
                         TotalStatsManager.enableStat(statId);
                     }
                 }
 
                 // 除外プレイヤーを読み込み
                 if (nbt.contains("excludedPlayers")) {
-                    NbtList excludedList = nbt.getList("excludedPlayers", 8); // 8 = String
+                    ListTag excludedList = nbt.getListOrEmpty("excludedPlayers");
                     for (int i = 0; i < excludedList.size(); i++) {
-                        String playerName = excludedList.getString(i);
+                        String playerName = excludedList.getStringOr(i, "");
                         TotalStatsManager.excludePlayer(playerName);
                     }
                 }
 
                 // Fake Player スコア表示設定を読み込み（再起動でリセットされないように永続化）
                 if (nbt.contains("fakePlayerScoreEnabled")) {
-                    ServerScoreboardConfig.FAKE_PLAYER_SCORE_ENABLED = nbt.getBoolean("fakePlayerScoreEnabled");
+                    ServerScoreboardConfig.FAKE_PLAYER_SCORE_ENABLED = nbt.getBooleanOr("fakePlayerScoreEnabled", false);
                 }
 
                 // 既知の Carpet fake player 名を読み込み（オフライン時の名前ベース判定用）
                 if (nbt.contains("knownFakePlayerNames")) {
-                    NbtList fakeList = nbt.getList("knownFakePlayerNames", 8);
+                    ListTag fakeList = nbt.getListOrEmpty("knownFakePlayerNames");
                     for (int i = 0; i < fakeList.size(); i++) {
-                        FakePlayerDetector.addKnownFakePlayerName(fakeList.getString(i));
+                        FakePlayerDetector.addKnownFakePlayerName(fakeList.getStringOr(i, ""));
                     }
                 }
 
@@ -1008,19 +1003,19 @@ public class ServerScoreboardManager {
     private static void saveTotalStatsConfig(Path configDir) {
         File statsConfigFile = configDir.resolve("total_stats_config.dat").toFile();
 
-        NbtCompound nbt = new NbtCompound();
+        CompoundTag nbt = new CompoundTag();
 
         // 有効な統計を保存
-        NbtList enabledList = new NbtList();
+        ListTag enabledList = new ListTag();
         for (String statId : TotalStatsManager.getEnabledStats()) {
-            enabledList.add(NbtString.of(statId));
+            enabledList.add(StringTag.valueOf(statId));
         }
         nbt.put("enabledStats", enabledList);
 
         // 除外プレイヤーを保存
-        NbtList excludedList = new NbtList();
+        ListTag excludedList = new ListTag();
         for (String playerName : TotalStatsManager.getExcludedPlayers()) {
-            excludedList.add(NbtString.of(playerName));
+            excludedList.add(StringTag.valueOf(playerName));
         }
         nbt.put("excludedPlayers", excludedList);
 
@@ -1028,14 +1023,14 @@ public class ServerScoreboardManager {
         nbt.putBoolean("fakePlayerScoreEnabled", ServerScoreboardConfig.FAKE_PLAYER_SCORE_ENABLED);
 
         // 既知の Carpet fake player 名を保存
-        NbtList fakeList = new NbtList();
+        ListTag fakeList = new ListTag();
         for (String name : FakePlayerDetector.getKnownFakePlayerNames()) {
-            fakeList.add(NbtString.of(name));
+            fakeList.add(StringTag.valueOf(name));
         }
         nbt.put("knownFakePlayerNames", fakeList);
 
         try {
-            NbtIo.writeCompressed(nbt, statsConfigFile);
+            NbtIo.writeCompressed(nbt, statsConfigFile.toPath());
         } catch (IOException e) {
             ServerScoreboardLogger.error("Failed to save total stats config", e);
         }
@@ -1045,8 +1040,8 @@ public class ServerScoreboardManager {
     private static void maintainScoreboardDisplay() {
         long currentTime = System.currentTimeMillis();
         
-        for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
-            UUID playerId = player.getUuid();
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            UUID playerId = player.getUUID();
             String activeObjective = playerActiveObjectives.get(playerId);
             
             if (activeObjective != null && !activeObjective.isEmpty()) {
@@ -1062,19 +1057,19 @@ public class ServerScoreboardManager {
     }
     
     // スコアボード表示をリフレッシュ（消失防止）
-    private static void refreshScoreboardDisplay(ServerPlayerEntity player, String objectiveName) {
+    private static void refreshScoreboardDisplay(ServerPlayer player, String objectiveName) {
         try {
             ServerScoreboard scoreboard = server.getScoreboard();
-            ScoreboardObjective objective = scoreboard.getObjective(objectiveName);
+            Objective objective = scoreboard.getObjective(objectiveName);
             
             if (objective != null) {
                 // サイドバー表示を再送信
-                player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardDisplayS2CPacket(1, objective));
+                player.connection.send(new net.minecraft.network.protocol.game.ClientboundSetDisplayObjectivePacket(DisplaySlot.SIDEBAR, objective));
             } else {
                 // オブジェクトが存在しない場合は再設定を試行
-                PlayerScoreboardData data = playerData.get(player.getUuid());
+                PlayerScoreboardData data = playerData.get(player.getUUID());
                 if (data != null && !data.getDisplayObjective().isEmpty()) {
-                    setClientDisplayObjective(player.getUuid(), data.getDisplayObjective());
+                    setClientDisplayObjective(player.getUUID(), data.getDisplayObjective());
                 }
             }
         } catch (Exception e) {
