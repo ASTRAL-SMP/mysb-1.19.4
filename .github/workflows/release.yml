@@ -104,9 +104,10 @@ jobs:
 
       - name: Prepare changelog
         run: |
-          # 注釈付きタグのメッセージを変更内容として GitHub Release と Modrinth の両方に使う
+          # 注釈付きタグのメッセージを変更内容として GitHub Release と Modrinth の両方に使う（署名付きタグの署名部分は除く）
           git fetch --force origin "refs/tags/${{ steps.tag.outputs.tag }}:refs/tags/${{ steps.tag.outputs.tag }}"
-          git for-each-ref "refs/tags/${{ steps.tag.outputs.tag }}" --format='%(contents)' > release-notes.md
+          git for-each-ref "refs/tags/${{ steps.tag.outputs.tag }}" --format='%(contents)' \
+            | sed '/^-----BEGIN .*SIGNATURE-----$/,/^-----END .*SIGNATURE-----$/d' > release-notes.md
           cat release-notes.md
 
       - name: Create GitHub Release
