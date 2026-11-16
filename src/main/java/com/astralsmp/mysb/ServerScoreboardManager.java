@@ -330,7 +330,7 @@ public class ServerScoreboardManager {
                     // 初回またはオブジェクト切り替え時の永続表示設定
                     
                     // 1. オブジェクト作成
-                    player.connection.send(new net.minecraft.network.protocol.game.ClientboundSetObjectivePacket(objective, 0));
+                    sendObjectiveToClient(player, objective);
                     
                     // 2. 永続的にサイドバー表示（消えないように）
                     player.connection.send(new net.minecraft.network.protocol.game.ClientboundSetDisplayObjectivePacket(DisplaySlot.SIDEBAR, objective));
@@ -346,16 +346,27 @@ public class ServerScoreboardManager {
                 // 永続表示保持システム：定期的に表示を確認・維持
                 maintainPersistentDisplay(player, objective);
             } else {
-                // パケットのみでスコアボードをクリア
+                // サーバーのデフォルト表示に戻す（デフォルトが無ければサイドバーは空になる）
                 UUID playerId = player.getUUID();
                 playerActiveObjectives.remove(playerId); // アクティブオブジェクティブをクリア
-                player.connection.send(new net.minecraft.network.protocol.game.ClientboundSetDisplayObjectivePacket(DisplaySlot.SIDEBAR, null));
+                Objective serverSidebar = server.getScoreboard().getDisplayObjective(DisplaySlot.SIDEBAR);
+                player.connection.send(new net.minecraft.network.protocol.game.ClientboundSetDisplayObjectivePacket(DisplaySlot.SIDEBAR, serverSidebar));
             }
         } catch (Exception e) {
             ServerScoreboardLogger.error("Failed to send scoreboard display packet to player " + player.getName().getString(), e);
         }
     }
     
+    // クライアントが既に持っている objective 名に ADD(0) を送ると、クライアントはパケットエラーで切断する
+    private static void sendObjectiveToClient(ServerPlayer player, Objective objective) {
+        if (server.getScoreboard().getObjectiveDisplaySlotCount(objective) > 0) {
+            // どこかの表示スロットにある objective はバニラが全プレイヤーへ同期済み
+            return;
+        }
+        // 以前このプレイヤーにだけ送った objective が残っている可能性があるので作り直す（無ければ REMOVE は無視される）
+        player.connection.send(new net.minecraft.network.protocol.game.ClientboundSetObjectivePacket(objective, 1));
+        player.connection.send(new net.minecraft.network.protocol.game.ClientboundSetObjectivePacket(objective, 0));
+    }
     
     private static void clearCustomObjectiveForPlayer(ServerPlayer player) {
         try {
@@ -545,14 +556,7 @@ public class ServerScoreboardManager {
         ServerPlayer player = server.getPlayerList().getPlayer(playerId);
         if (player != null) {
             // サーバーの現在のデフォルトスコアボードに戻す
-            Objective currentDefault = server.getScoreboard().getDisplayObjective(DisplaySlot.SIDEBAR);
-            if (currentDefault != null) {
-                // サーバーのデフォルトスコアボードを強制的に再送信
-                forceServerScoreboardSync(player);
-            } else {
-                // デフォルトがない場合のみクリア
-                sendScoreboardDisplayPacketOnly(player, null);
-            }
+            sendScoreboardDisplayPacketOnly(player, null);
         }
         
         // カスタムスコアボードもクリア
@@ -563,26 +567,6 @@ public class ServerScoreboardManager {
         
         // 変換データもクリア
         transformData.remove(playerId);
-    }
-    
-    private static void forceServerScoreboardSync(ServerPlayer player) {
-        // サーバーの全てのスコアボード情報を再送信
-        ServerScoreboard scoreboard = server.getScoreboard();
-        
-        // サイドバーのスコアボードを取得
-        Objective sidebarObjective = scoreboard.getDisplayObjective(DisplaySlot.SIDEBAR);
-        if (sidebarObjective != null) {
-            // オブジェクティブを再送信
-            player.connection.send(new net.minecraft.network.protocol.game.ClientboundSetObjectivePacket(sidebarObjective, 0));
-            
-            // 全スコアを再送信
-            scoreboard.listPlayerScores(sidebarObjective).forEach(score -> {
-                sendScoreUpdatePacket(player, sidebarObjective.getName(), score);
-            });
-            
-            // サイドバーに表示
-            player.connection.send(new net.minecraft.network.protocol.game.ClientboundSetDisplayObjectivePacket(DisplaySlot.SIDEBAR, sidebarObjective));
-        }
     }
     
     // カスタムスコアボード関連のメソッド
