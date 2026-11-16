@@ -16,12 +16,16 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # workflow_dispatch はデフォルトブランチで動くので、指定タグのコードをビルドする
+          ref: ${{ github.event.inputs.tag }}
 
       - name: Determine required Java version
         id: java
@@ -65,6 +69,7 @@ jobs:
           echo "mc_version=${MC_VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Verify mod_version and minecraft_version match tag
+        id: props
         run: |
           MOD_VERSION=$(grep -E '^mod_version=' gradle.properties | cut -d'=' -f2 | tr -d '[:space:]')
           MC_VERSION=$(grep -E '^minecraft_version=' gradle.properties | cut -d'=' -f2 | tr -d '[:space:]')
@@ -74,6 +79,7 @@ jobs:
           echo "minecraft_version in gradle.properties: ${MC_VERSION}"
           echo "tag version: ${TAG_VERSION}"
           echo "tag mc: ${TAG_MC}"
+          echo "minecraft_version=${MC_VERSION}" >> "$GITHUB_OUTPUT"
           if [ "${MOD_VERSION}" != "${TAG_VERSION}" ]; then
             echo "::warning::gradle.properties の mod_version (${MOD_VERSION}) とタグ (${TAG_VERSION}) が一致していません"
           fi
@@ -96,12 +102,40 @@ jobs:
           echo "---"
           ls -la release-artifacts/
 
+      - name: Prepare changelog
+        run: |
+          # 注釈付きタグのメッセージを変更内容として GitHub Release と Modrinth の両方に使う
+          git fetch --force origin "refs/tags/${{ steps.tag.outputs.tag }}:refs/tags/${{ steps.tag.outputs.tag }}"
+          git for-each-ref "refs/tags/${{ steps.tag.outputs.tag }}" --format='%(contents)' > release-notes.md
+          cat release-notes.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: ${{ steps.tag.outputs.mc_version && format('MySB v{0} (MC {1})', steps.tag.outputs.version, steps.tag.outputs.mc_version) || format('MySB {0}', steps.tag.outputs.tag) }}
+          body_path: release-notes.md
           generate_release_notes: true
           draft: false
           prerelease: false
           files: release-artifacts/*.jar
+
+      - name: Publish to Modrinth
+        if: ${{ env.MODRINTH_TOKEN != '' }}
+        uses: Kir-Antipov/mc-publish@v3.3
+        with:
+          modrinth-id: OW4WPjar
+          modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
+          files: release-artifacts/*.jar
+          name: MySB ${{ steps.tag.outputs.version }}
+          version: ${{ steps.tag.outputs.version }}
+          version-type: release
+          changelog-file: release-notes.md
+          loaders: fabric
+          game-versions: ${{ steps.props.outputs.minecraft_version }}
+          dependencies: |
+            fabric-api(required){modrinth:P7dR8mSH}
+
+      - name: Skip Modrinth
+        if: ${{ env.MODRINTH_TOKEN == '' }}
+        run: echo "::warning::MODRINTH_TOKEN シークレットが未設定のため Modrinth への公開をスキップしました"
