@@ -330,7 +330,7 @@ public class ServerScoreboardManager {
                     // 初回またはオブジェクト切り替え時の永続表示設定
                     
                     // 1. オブジェクト作成
-                    player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardObjectiveUpdateS2CPacket(objective, 0));
+                    sendObjectiveToClient(player, objective);
                     
                     // 2. 永続的にサイドバー表示（消えないように）
                     player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardDisplayS2CPacket(ScoreboardDisplaySlot.SIDEBAR, objective));
@@ -346,16 +346,27 @@ public class ServerScoreboardManager {
                 // 永続表示保持システム：定期的に表示を確認・維持
                 maintainPersistentDisplay(player, objective);
             } else {
-                // パケットのみでスコアボードをクリア
+                // サーバーのデフォルト表示に戻す（デフォルトが無ければサイドバーは空になる）
                 UUID playerId = player.getUuid();
                 playerActiveObjectives.remove(playerId); // アクティブオブジェクティブをクリア
-                player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardDisplayS2CPacket(ScoreboardDisplaySlot.SIDEBAR, null));
+                ScoreboardObjective serverSidebar = server.getScoreboard().getObjectiveForSlot(ScoreboardDisplaySlot.SIDEBAR);
+                player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardDisplayS2CPacket(ScoreboardDisplaySlot.SIDEBAR, serverSidebar));
             }
         } catch (Exception e) {
             ServerScoreboardLogger.error("Failed to send scoreboard display packet to player " + player.getName().getString(), e);
         }
     }
     
+    // クライアントが既に持っている objective 名に ADD(0) を送るとクライアント側で例外になる（1.21 以降はそのまま切断される）
+    private static void sendObjectiveToClient(ServerPlayerEntity player, ScoreboardObjective objective) {
+        if (server.getScoreboard().getSlot(objective) > 0) {
+            // どこかの表示スロットにある objective はバニラが全プレイヤーへ同期済み
+            return;
+        }
+        // 以前このプレイヤーにだけ送った objective が残っている可能性があるので作り直す（無ければ REMOVE は無視される）
+        player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardObjectiveUpdateS2CPacket(objective, 1));
+        player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardObjectiveUpdateS2CPacket(objective, 0));
+    }
     
     private static void clearCustomObjectiveForPlayer(ServerPlayerEntity player) {
         try {
@@ -545,14 +556,7 @@ public class ServerScoreboardManager {
         ServerPlayerEntity player = server.getPlayerManager().getPlayer(playerId);
         if (player != null) {
             // サーバーの現在のデフォルトスコアボードに戻す
-            ScoreboardObjective currentDefault = server.getScoreboard().getObjectiveForSlot(ScoreboardDisplaySlot.SIDEBAR);
-            if (currentDefault != null) {
-                // サーバーのデフォルトスコアボードを強制的に再送信
-                forceServerScoreboardSync(player);
-            } else {
-                // デフォルトがない場合のみクリア
-                sendScoreboardDisplayPacketOnly(player, null);
-            }
+            sendScoreboardDisplayPacketOnly(player, null);
         }
         
         // カスタムスコアボードもクリア
@@ -563,26 +567,6 @@ public class ServerScoreboardManager {
         
         // 変換データもクリア
         transformData.remove(playerId);
-    }
-    
-    private static void forceServerScoreboardSync(ServerPlayerEntity player) {
-        // サーバーの全てのスコアボード情報を再送信
-        ServerScoreboard scoreboard = server.getScoreboard();
-        
-        // サイドバーのスコアボードを取得
-        ScoreboardObjective sidebarObjective = scoreboard.getObjectiveForSlot(ScoreboardDisplaySlot.SIDEBAR);
-        if (sidebarObjective != null) {
-            // オブジェクティブを再送信
-            player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardObjectiveUpdateS2CPacket(sidebarObjective, 0));
-            
-            // 全スコアを再送信
-            scoreboard.getScoreboardEntries(sidebarObjective).forEach(score -> {
-                sendScoreUpdatePacket(player, sidebarObjective.getName(), score);
-            });
-            
-            // サイドバーに表示
-            player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ScoreboardDisplayS2CPacket(ScoreboardDisplaySlot.SIDEBAR, sidebarObjective));
-        }
     }
     
     // カスタムスコアボード関連のメソッド
